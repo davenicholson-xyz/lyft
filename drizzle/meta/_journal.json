@@ -8,6 +8,48 @@
       "when": 1774204443431,
       "tag": "0000_exotic_masque",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1774205642211,
+      "tag": "0001_aspiring_wallflower",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1774207218912,
+      "tag": "0002_complex_praxagora",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1774287998893,
+      "tag": "0003_low_random",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1774296365870,
+      "tag": "0004_light_joseph",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1774298062317,
+      "tag": "0005_solid_ultragirl",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1774298948429,
+      "tag": "0006_dusty_vermin",
+      "breakpoints": true
     }
   ]
 }

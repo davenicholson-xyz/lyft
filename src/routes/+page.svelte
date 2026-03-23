@@ -1,18 +1,40 @@
 <script lang="ts">
   import { getMonthData, getDayDetail, addPlan, deletePlan } from './calendar.remote';
+  import { goto } from '$app/navigation';
+  import { getStravaStatus, syncStrava } from './strava.remote';
+  import { generateWeekPlan, acceptWeekPlan } from './planning.remote';
+
+  type GeneratedPlan = { summary: string; days: { date: string; type: string; notes: string }[]; runDates: string[]; existingDates: string[] };
 
   type View = 'month' | 'week';
 
   const today = new Date();
 
-  let view             = $state<View>('month');
+  let view             = $state<View>('week');
   let currentYear      = $state(today.getFullYear());
   let currentMonth     = $state(today.getMonth()); // 0-indexed
   let currentWeekStart = $state(getMonday(today));  // always a Monday Date
   let selectedDate     = $state<string | null>(null);
-  let showAddForm      = $state(false);
-  let addType          = $state('weights');
-  let addNotes         = $state('');
+  let syncing          = $state(false);
+  let syncResult       = $state<string | null>(null);
+  let planLoading      = $state(false);
+  let planError        = $state<string | null>(null);
+  let generatedPlan    = $state<GeneratedPlan | null>(null);
+  let regenNotes       = $state('');
+  let showRegenInput   = $state(false);
+
+  async function handleSync() {
+    syncing = true;
+    syncResult = null;
+    try {
+      const result = await syncStrava();
+      syncResult = result.synced > 0 ? `Synced ${result.synced} run${result.synced === 1 ? '' : 's'}` : 'Already up to date';
+    } catch {
+      syncResult = 'Sync failed';
+    } finally {
+      syncing = false;
+    }
+  }
 
   let yearMonth = $derived(
     `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
@@ -60,9 +82,8 @@
   }
 
   function typeColor(type: string): string {
-    if (type === 'weights')    return '#a855f7';
-    if (type === 'run')        return '#f87171';
-    if (type === 'kettlebell') return '#2dd4bf';
+    if (type === 'run')     return '#f87171';
+    if (type === 'workout') return '#60a5fa';
     return '#9ca3af';
   }
 
@@ -118,33 +139,75 @@
   function selectDay(d: Date | null) {
     if (!d) return;
     selectedDate = toISO(d);
-    showAddForm = false;
-    addNotes = '';
   }
 
   function closePanel() {
     selectedDate = null;
-    showAddForm = false;
-    addNotes = '';
-  }
-
-  async function handleAddPlan() {
-    if (!selectedDate) return;
-    await addPlan({ date: selectedDate, type: addType, notes: addNotes || undefined });
-    showAddForm = false;
-    addNotes = '';
   }
 
   async function handleDeletePlan(id: number, date: string) {
     await deletePlan({ id, date });
   }
 
+  async function handleGeneratePlan() {
+    planLoading = true;
+    planError = null;
+    generatedPlan = null;
+    selectedDate = null;
+    showRegenInput = false;
+    try {
+      generatedPlan = await generateWeekPlan({ weekStart: toISO(currentWeekStart) });
+    } catch (e) {
+      planError = e instanceof Error ? e.message : 'Failed to generate plan';
+    } finally {
+      planLoading = false;
+    }
+  }
+
+  async function handleRegenPlan() {
+    planLoading = true;
+    planError = null;
+    showRegenInput = false;
+    try {
+      generatedPlan = await generateWeekPlan({ weekStart: toISO(currentWeekStart), notes: regenNotes || undefined });
+      regenNotes = '';
+    } catch (e) {
+      planError = e instanceof Error ? e.message : 'Failed to regenerate plan';
+    } finally {
+      planLoading = false;
+    }
+  }
+
+  async function handleAcceptPlan() {
+    if (!generatedPlan) return;
+    await acceptWeekPlan({ days: generatedPlan.days as { date: string; type: 'run' | 'rest'; notes: string }[] });
+    generatedPlan = null;
+  }
+
+  function dayName(dateStr: string): string {
+    return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short' });
+  }
+
   const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  function ordinal(n: number): string {
+    const s = ['th','st','nd','rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
+  }
+
+  function weekRangeLabel(start: Date, end: Date): string {
+    const sm = start.toLocaleDateString('en-GB', { month: 'short' });
+    const em = end.toLocaleDateString('en-GB',   { month: 'short' });
+    return sm === em
+      ? `${ordinal(start.getDate())} – ${ordinal(end.getDate())} ${em}`
+      : `${ordinal(start.getDate())} ${sm} – ${ordinal(end.getDate())} ${em}`;
+  }
 </script>
 
 <div class="min-h-screen bg-base-100 text-base-content p-4 pb-0 max-w-lg mx-auto">
-  <!-- View toggle -->
-  <div class="flex gap-2 mb-4">
+  <!-- View toggle + Strava -->
+  <div class="flex items-center gap-2 mb-4">
     <button
       class="btn btn-sm {view === 'month' ? 'btn-primary' : 'btn-ghost'}"
       onclick={() => view = 'month'}
@@ -153,6 +216,30 @@
       class="btn btn-sm {view === 'week' ? 'btn-primary' : 'btn-ghost'}"
       onclick={() => view = 'week'}
     >Week</button>
+
+    <div class="ml-auto flex items-center gap-2">
+      {#if syncResult}
+        <span class="text-xs text-base-content/50">{syncResult}</span>
+      {/if}
+      {#await getStravaStatus()}
+        <span class="loading loading-spinner loading-xs"></span>
+      {:then status}
+        {#if status.connected}
+          <button class="btn btn-sm btn-ghost gap-1" onclick={handleSync} disabled={syncing}>
+            {#if syncing}
+              <span class="loading loading-spinner loading-xs"></span>
+            {:else}
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+            {/if}
+            Strava
+          </button>
+        {:else}
+          <a href="/strava/connect" class="btn btn-sm btn-ghost text-[#FC4C02]">Connect Strava</a>
+        {/if}
+      {/await}
+    </div>
   </div>
 
   {#await getMonthData(yearMonth)}
@@ -227,7 +314,7 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
             </svg>
           </button>
-          <span class="font-semibold text-sm">{toISO(currentWeekStart)} – {toISO(weekEnd)}</span>
+          <span class="font-semibold text-sm">{weekRangeLabel(currentWeekStart, weekEnd)}</span>
           <button class="btn btn-ghost btn-sm btn-circle" aria-label="Next week" onclick={nextWeek}>
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
@@ -266,93 +353,198 @@
             </button>
           {/each}
         </div>
+
+        <!-- Generate plan -->
+        <div class="mt-4 flex items-center gap-3">
+          <button
+            class="btn btn-sm btn-outline flex-1"
+            onclick={handleGeneratePlan}
+            disabled={planLoading}
+          >
+            {#if planLoading}
+              <span class="loading loading-spinner loading-xs"></span>
+              Thinking…
+            {:else}
+              Generate week plan
+            {/if}
+          </button>
+          {#if planError}
+            <span class="text-xs text-error">{planError}</span>
+          {/if}
+        </div>
       {/await}
     {/if}
   {/await}
 </div>
 
-<!-- Bottom panel -->
-{#if selectedDate}
-  <div class="fixed bottom-0 left-0 right-0 bg-base-200 rounded-t-2xl max-h-[60vh] overflow-y-auto shadow-xl z-50 max-w-lg mx-auto">
-    <div class="p-4">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="font-semibold text-base">{selectedDate}</h2>
-        <button class="btn btn-ghost btn-sm btn-circle" onclick={closePanel}>✕</button>
+<!-- Generated plan — full screen -->
+{#if generatedPlan}
+  {@const allDays = [
+    ...generatedPlan.runDates.map(date => ({ date, isRun: true, notes: '' })),
+    ...generatedPlan.days.map(d => ({ date: d.date, isRun: false, notes: d.notes })),
+  ].sort((a, b) => a.date.localeCompare(b.date))}
+  <div class="fixed inset-0 z-50 bg-base-100 overflow-y-auto">
+    <div class="max-w-lg mx-auto p-4 pb-32">
+
+      <!-- Header -->
+      <div class="flex items-center justify-between mb-1 pt-2">
+        <h2 class="font-semibold text-lg">Week Plan</h2>
+        <button class="btn btn-ghost btn-sm btn-circle" onclick={() => generatedPlan = null}>✕</button>
       </div>
 
-      {#await getDayDetail(selectedDate)}
-        <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
-      {:then dayData}
-        <!-- Sessions -->
-        {#if dayData.sessions.length > 0}
-          <div class="mb-3">
-            <div class="text-xs text-base-content/50 uppercase tracking-wide mb-2">Sessions</div>
-            {#each dayData.sessions as session}
-              <div class="card bg-base-100 mb-2 overflow-hidden">
-                <div class="flex">
-                  <div class="w-1 shrink-0" style="background:{typeColor(session.type)}"></div>
-                  <div class="p-3">
-                    <div class="font-medium capitalize">{session.type}</div>
-                    {#if session.notes}<div class="text-sm text-base-content/70 mt-0.5">{session.notes}</div>{/if}
-                  </div>
-                </div>
-              </div>
-            {/each}
-          </div>
-        {/if}
-
-        <!-- Plans -->
-        {#if dayData.plans.length > 0}
-          <div class="mb-3">
-            <div class="text-xs text-base-content/50 uppercase tracking-wide mb-2">Plans</div>
-            {#each dayData.plans as plan}
-              <div class="card bg-base-100 mb-2 overflow-hidden">
-                <div class="flex items-center">
-                  <div class="w-1 shrink-0 self-stretch" style="background:{typeColor(plan.type)}"></div>
-                  <div class="p-3 flex-1">
-                    <div class="font-medium capitalize">{plan.type}
-                      <span class="badge badge-sm ml-1 {plan.status === 'done' ? 'badge-success' : 'badge-ghost'}">{plan.status}</span>
-                    </div>
-                    {#if plan.notes}<div class="text-sm text-base-content/70 mt-0.5">{plan.notes}</div>{/if}
-                  </div>
-                  <button
-                    class="btn btn-ghost btn-sm btn-circle mr-2 text-error"
-                    onclick={() => handleDeletePlan(plan.id, plan.date)}
-                  >✕</button>
-                </div>
-              </div>
-            {/each}
-          </div>
-        {/if}
-
-        {#if dayData.plans.length === 0 && dayData.sessions.length === 0}
-          <p class="text-base-content/50 text-sm py-2">Nothing planned</p>
-        {/if}
-
-        <!-- Add form -->
-        {#if !showAddForm}
-          <button class="btn btn-sm btn-outline w-full mt-2" onclick={() => showAddForm = true}>
-            + Add plan
-          </button>
-        {:else}
-          <div class="bg-base-100 rounded-xl p-3 mt-2 flex flex-col gap-2">
-            <select class="select select-sm select-bordered w-full" bind:value={addType}>
-              <option value="weights">Weights</option>
-              <option value="run">Run</option>
-              <option value="kettlebell">Kettlebell</option>
-            </select>
-            <input
-              class="input input-sm input-bordered w-full"
-              placeholder="Notes (optional)"
-              bind:value={addNotes}
-            />
-            <div class="flex gap-2">
-              <button class="btn btn-sm btn-primary flex-1" onclick={handleAddPlan}>Save</button>
-              <button class="btn btn-sm btn-ghost flex-1" onclick={() => { showAddForm = false; addNotes = ''; }}>Cancel</button>
+      <!-- Days -->
+      <div class="space-y-5">
+        {#each allDays as day}
+          <div class="{day.isRun ? 'opacity-40' : ''}">
+            <div class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-1">
+              {dayName(day.date)} · {day.date}
             </div>
+            {#if day.isRun}
+              <p class="text-sm italic">Running</p>
+            {:else}
+              {@const colonIdx = day.notes.indexOf(':')}
+              {@const title = colonIdx !== -1 ? day.notes.slice(0, colonIdx).trim() : null}
+              {@const exerciseStr = colonIdx !== -1 ? day.notes.slice(colonIdx + 1) : day.notes}
+              {#if title}
+                <p class="text-sm font-semibold mb-1">{title}</p>
+              {/if}
+              <ul class="space-y-1">
+                {#each exerciseStr.split(',').map(s => s.trim()).filter(Boolean) as exercise}
+                  <li class="text-sm flex gap-2">
+                    <span class="text-base-content/30 select-none">–</span>
+                    {exercise}
+                  </li>
+                {/each}
+              </ul>
+            {/if}
           </div>
-        {/if}
-      {/await}
+        {/each}
+      </div>
+    </div>
+
+    <!-- Sticky footer -->
+    <div class="fixed bottom-0 left-0 right-0 bg-base-100 border-t border-base-200 p-4 max-w-lg mx-auto">
+      {#if !showRegenInput}
+        <div class="flex gap-2">
+          <button class="btn btn-primary flex-1" onclick={handleAcceptPlan}>Accept plan</button>
+          <button class="btn btn-ghost" onclick={() => showRegenInput = true}>Regenerate</button>
+        </div>
+      {:else}
+        <div class="flex flex-col gap-2">
+          <textarea
+            class="textarea textarea-bordered textarea-sm w-full"
+            placeholder="Notes for regeneration (optional)…"
+            rows="2"
+            bind:value={regenNotes}
+          ></textarea>
+          <div class="flex gap-2">
+            <button class="btn btn-outline flex-1" onclick={handleRegenPlan} disabled={planLoading}>
+              {#if planLoading}<span class="loading loading-spinner loading-xs"></span>{/if}
+              Regenerate
+            </button>
+            <button class="btn btn-ghost" onclick={() => { showRegenInput = false; regenNotes = ''; }}>Cancel</button>
+          </div>
+        </div>
+      {/if}
+    </div>
+  </div>
+{/if}
+
+<!-- Day drawer -->
+{#if selectedDate}
+  <div class="fixed inset-0 z-50" onclick={closePanel}>
+    <div class="absolute inset-0 bg-black/40"></div>
+    <div class="absolute bottom-0 left-0 right-0 bg-base-100 rounded-t-2xl shadow-2xl max-w-lg mx-auto" onclick={(e) => e.stopPropagation()}>
+      <!-- Handle -->
+      <div class="flex justify-center pt-3 pb-1">
+        <div class="w-10 h-1 rounded-full bg-base-300"></div>
+      </div>
+
+      <div class="px-5 pb-8 pt-2">
+        <div class="flex items-center justify-between mb-5">
+          <span class="font-semibold text-base">
+            {new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </span>
+          <button class="btn btn-ghost btn-sm btn-circle" onclick={closePanel}>✕</button>
+        </div>
+
+        {#await getDayDetail(selectedDate)}
+          <div class="flex justify-center py-6"><span class="loading loading-spinner loading-sm"></span></div>
+        {:then dayData}
+          {@const isEmpty = dayData.plans.length === 0 && dayData.sessions.length === 0}
+          {#if isEmpty}
+            <div class="flex gap-3 pb-2">
+              <button
+                class="flex-1 flex flex-col items-center gap-2 rounded-xl py-6 bg-base-200 hover:bg-base-300 transition-colors"
+                onclick={async () => { await addPlan({ date: selectedDate!, type: 'run' }); closePanel(); }}
+              >
+                <span class="w-4 h-4 rounded-full" style="background:#f87171"></span>
+                <span class="font-medium">Run</span>
+              </button>
+              <button
+                class="flex-1 flex flex-col items-center gap-2 rounded-xl py-6 bg-base-200 hover:bg-base-300 transition-colors"
+                onclick={async () => { await addPlan({ date: selectedDate!, type: 'rest' }); closePanel(); }}
+              >
+                <span class="w-4 h-4 rounded-full" style="background:#9ca3af"></span>
+                <span class="font-medium">Rest</span>
+              </button>
+            </div>
+          {:else}
+            <div class="space-y-4">
+              {#each dayData.sessions as session}
+                <div class="flex items-center gap-3">
+                  <span class="w-2 h-2 rounded-full shrink-0" style="background:{typeColor(session.type)}"></span>
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm font-semibold capitalize">{session.type}</div>
+                    {#if session.notes}<div class="text-xs text-base-content/50 truncate">{session.notes}</div>{/if}
+                  </div>
+                </div>
+              {/each}
+
+              {#each dayData.plans.filter(p => !dayData.sessions.some(s => s.type === p.type)) as plan}
+                {@const colonIdx   = (plan.notes ?? '').indexOf(':')}
+                {@const title      = plan.type === 'workout' && colonIdx !== -1 ? plan.notes!.slice(0, colonIdx).trim() : null}
+                {@const exStr      = plan.type === 'workout' ? (colonIdx !== -1 ? plan.notes!.slice(colonIdx + 1) : plan.notes ?? '') : ''}
+                {@const exercises  = plan.type === 'workout' ? exStr.split(',').map(s => s.trim()).filter(Boolean) : []}
+
+                <div>
+                  <div class="flex items-center gap-3 mb-2">
+                    <span class="w-2 h-2 rounded-full shrink-0" style="background:{typeColor(plan.type)}"></span>
+                    <div class="flex-1 min-w-0">
+                      {#if plan.type === 'workout'}
+                        <div class="text-sm font-semibold">{title ?? 'Workout'}</div>
+                      {:else}
+                        <div class="text-sm font-semibold capitalize">{plan.type}</div>
+                        {#if plan.notes}<div class="text-xs text-base-content/50">{plan.notes}</div>{/if}
+                      {/if}
+                    </div>
+                    {#if plan.type === 'workout'}
+                      <button
+                        class="btn btn-primary btn-sm shrink-0"
+                        onclick={() => goto(`/workout/${plan.date}`)}
+                      >Start</button>
+                    {/if}
+                    <button
+                      class="btn btn-ghost btn-xs text-error shrink-0"
+                      onclick={() => handleDeletePlan(plan.id, plan.date)}
+                    >✕</button>
+                  </div>
+
+                  {#if exercises.length > 0}
+                    <ul class="ml-5 space-y-1">
+                      {#each exercises as ex}
+                        <li class="text-sm text-base-content/70 flex gap-2">
+                          <span class="text-base-content/30 select-none">–</span>{ex}
+                        </li>
+                      {/each}
+                    </ul>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
+        {/await}
+      </div>
     </div>
   </div>
 {/if}

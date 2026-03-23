@@ -33,6 +33,8 @@ export const getDayDetail = query(DateSchema, async (date) => {
 });
 
 export const addPlan = command(AddPlanSchema, async (input) => {
+  // Replace any existing plans for the day so there's only ever one
+  await db.delete(plans).where(eq(plans.date, input.date));
   await db.insert(plans).values({
     date: input.date,
     type: input.type,
