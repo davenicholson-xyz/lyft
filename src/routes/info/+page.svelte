@@ -24,21 +24,22 @@
   }
 </script>
 
-<div class="p-4 max-w-lg mx-auto">
-  <h1 class="text-xl font-semibold mb-1">Training notes</h1>
-  <p class="text-sm text-base-content/50 mb-5">These are sent to the AI when generating your weekly plan.</p>
+<div class="p-4 max-w-lg mx-auto pb-24">
+  <h1 class="text-xl font-bold mb-1 pt-2">Training notes</h1>
+  <p class="text-sm text-base-content/50 mb-5">Sent to the AI when generating your weekly plan.</p>
 
   {#await getNotes()}
     <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
   {:then notes}
-    {#if notes.length === 0}
-      <p class="text-base-content/40 text-sm mb-4">No notes yet.</p>
-    {:else}
-      <ul class="space-y-2 mb-5">
-        {#each notes as n (n.id)}
-          <li class="card bg-base-200 px-4 py-3">
+
+    <div class="bg-base-200 rounded-2xl overflow-hidden mb-4">
+      {#if notes.length === 0}
+        <p class="text-base-content/40 text-sm px-4 py-3">No notes yet.</p>
+      {:else}
+        {#each notes as n, i (n.id)}
+          <div class="{i < notes.length - 1 ? 'border-b border-base-300' : ''}">
             {#if editingId === n.id}
-              <div class="flex gap-2">
+              <div class="flex items-center gap-2 px-4 py-2">
                 <input
                   class="input input-sm input-bordered flex-1"
                   bind:value={editText}
@@ -46,19 +47,19 @@
                   autofocus
                 />
                 <button class="btn btn-sm btn-primary" onclick={handleUpdate}>Save</button>
-                <button class="btn btn-sm btn-ghost" onclick={() => editingId = null}>Cancel</button>
+                <button class="btn btn-sm btn-ghost" onclick={() => editingId = null}>✕</button>
               </div>
             {:else}
-              <div class="flex items-start gap-2">
+              <div class="flex items-center px-4 py-2.5">
                 <span class="flex-1 text-sm">{n.note}</span>
-                <button class="btn btn-ghost btn-xs" onclick={() => startEdit(n.id, n.note)}>Edit</button>
-                <button class="btn btn-ghost btn-xs text-error" onclick={() => deleteNote({ id: n.id })}>✕</button>
+                <button class="text-xs text-base-content/30 hover:text-primary transition-colors mr-3" onclick={() => startEdit(n.id, n.note)}>Edit</button>
+                <button class="text-xs text-base-content/30 hover:text-error transition-colors" onclick={() => deleteNote({ id: n.id })}>✕</button>
               </div>
             {/if}
-          </li>
+          </div>
         {/each}
-      </ul>
-    {/if}
+      {/if}
+    </div>
 
     <form class="flex gap-2" onsubmit={(e) => { e.preventDefault(); handleAdd(); }}>
       <input
@@ -68,5 +69,6 @@
       />
       <button type="submit" class="btn btn-sm btn-primary">Add</button>
     </form>
+
   {/await}
 </div>

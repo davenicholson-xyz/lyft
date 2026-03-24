@@ -1,8 +1,8 @@
 import { command } from '$app/server';
 import * as v from 'valibot';
 import { db } from '$lib/server/db';
-import { plans, sessions, equipment, training_notes } from '$lib/server/db/schema';
-import { inArray, eq } from 'drizzle-orm';
+import { plans, sessions, equipment, training_notes, workout_logs } from '$lib/server/db/schema';
+import { inArray, eq, and } from 'drizzle-orm';
 import { getClient, logUsage } from '$lib/server/claude';
 import { getMonthData } from './calendar.remote';
 
@@ -28,13 +28,20 @@ function buildWeekDates(weekStart: string): string[] {
 }
 
 export const generateWeekPlan = command(GeneratePlanSchema, async ({ weekStart, notes }) => {
-  const weekDates = buildWeekDates(weekStart);
+  const weekDates     = buildWeekDates(weekStart);
+  const prevWeekDates = buildWeekDates((() => {
+    const d = new Date(weekStart + 'T12:00:00');
+    d.setDate(d.getDate() - 7);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })());
 
-  const [weekSessions, weekPlans, gear, userNotes] = await Promise.all([
+  const [weekSessions, weekPlans, gear, userNotes, prevPlans, prevLogs] = await Promise.all([
     db.select().from(sessions).where(inArray(sessions.date, weekDates)),
     db.select().from(plans).where(inArray(plans.date, weekDates)),
     db.select().from(equipment),
     db.select().from(training_notes),
+    db.select().from(plans).where(and(inArray(plans.date, prevWeekDates), eq(plans.type, 'workout'))),
+    db.select().from(workout_logs).where(inArray(workout_logs.date, prevWeekDates)),
   ]);
 
   const gearStr = gear.length
@@ -59,6 +66,35 @@ export const generateWeekPlan = command(GeneratePlanSchema, async ({ weekStart, 
     return `${name} ${date}: free`;
   }).join('\n');
 
+  // Summarise last week's workouts with actual weights logged
+  let prevWeekStr = '';
+  if (prevPlans.length > 0) {
+    const lines = prevPlans.map(p => {
+      const dayName = new Date(p.date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long' });
+      const colonIdx = (p.notes ?? '').indexOf(':');
+      const title    = colonIdx !== -1 ? p.notes!.slice(0, colonIdx).trim() : p.notes ?? '';
+      const exStr    = colonIdx !== -1 ? p.notes!.slice(colonIdx + 1) : p.notes ?? '';
+      const exercises = exStr.split(',').map(s => s.trim()).filter(Boolean);
+
+      const exerciseDetails = exercises.map(ex => {
+        const exName  = ex.replace(/\s+\d+[×x]\d+s?$/i, '').trim();
+        const logsForEx = prevLogs.filter(l => l.exercise_name.toLowerCase() === exName.toLowerCase());
+        if (logsForEx.length === 0) return `  - ${ex} (not logged)`;
+        const setLines = logsForEx
+          .sort((a, b) => a.set_number - b.set_number)
+          .map(l => {
+            if (l.weight_kg != null) return `${l.reps ?? '?'} reps @ ${l.weight_kg}kg`;
+            if (l.reps != null)      return `${l.reps} reps`;
+            return 'logged';
+          }).join(', ');
+        return `  - ${exName}: ${setLines}`;
+      }).join('\n');
+
+      return `${dayName} (${p.date}) — ${title}\n${exerciseDetails}`;
+    }).join('\n');
+    prevWeekStr = `\nLast week's workouts (use for progressive overload):\n${lines}`;
+  }
+
   const prompt = `You are a strength and conditioning coach. Create a gym/exercise plan for the free days in the week of ${weekStart}.
 
 Week schedule:
@@ -66,12 +102,12 @@ ${dayLines}
 
 Available equipment:
 ${gearStr}
-${userNotes.length ? `\nTraining requirements (must follow):\n${userNotes.map(n => `- ${n.note}`).join('\n')}` : ''}
+${userNotes.length ? `\nTraining requirements (must follow):\n${userNotes.map(n => `- ${n.note}`).join('\n')}` : ''}${prevWeekStr}
 ${notes ? `\nAdditional notes for this week: ${notes}` : ''}
 
 Instructions:
 - Only create plans for FREE days (ignore run days completely)
-- Use the available equipment to prescribe exercises with sets and reps (no weights yet)
+- Use the available equipment to prescribe exercises with sets and reps only — never include weights
 - Spread muscle groups across the free days sensibly
 - If there are more free days than needed, mark some as rest/recovery
 - Keep notes concise: e.g. "Push: bench press 3×10, shoulder press 3×10, tricep dips 3×12"

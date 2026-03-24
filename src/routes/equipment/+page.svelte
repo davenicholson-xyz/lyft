@@ -18,79 +18,68 @@
   }
 </script>
 
-<div class="p-4 max-w-lg mx-auto">
-  <h1 class="text-xl font-semibold mb-4">Equipment</h1>
+<div class="p-4 max-w-lg mx-auto pb-24">
+  <h1 class="text-xl font-bold mb-4 pt-2">Equipment</h1>
 
   {#await getEquipment()}
-    <div class="flex justify-center py-8">
-      <span class="loading loading-spinner loading-md"></span>
-    </div>
+    <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
   {:then items}
-    {#if items.length === 0}
-      <p class="text-base-content/50 text-sm mb-4">No equipment yet.</p>
-    {:else}
-      <ul class="space-y-2 mb-4">
-        {#each items as item (item.id)}
-          <li class="card bg-base-200 px-4 py-3 flex items-center justify-between">
-            <div>
-              <span class="font-semibold">{item.name}</span>
-              {#if item.weight_type === 'single' && item.weight_min != null}
-                <span class="ml-2 text-sm text-base-content/60">{item.weight_min} kg</span>
-              {:else if item.weight_type === 'range' && item.weight_min != null && item.weight_max != null}
-                <span class="ml-2 text-sm text-base-content/60">{item.weight_min}–{item.weight_max} kg</span>
-              {/if}
-            </div>
+
+    <div class="bg-base-200 rounded-2xl overflow-hidden mb-4">
+      {#if items.length === 0}
+        <p class="text-base-content/40 text-sm px-4 py-3">No equipment yet.</p>
+      {:else}
+        {#each items as item, i (item.id)}
+          <div class="flex items-center px-4 py-2.5 {i < items.length - 1 ? 'border-b border-base-300' : ''}">
+            <span class="flex-1 text-sm font-medium">{item.name}</span>
+            {#if item.weight_type === 'single' && item.weight_min != null}
+              <span class="text-xs text-base-content/40 mr-3">{item.weight_min} kg</span>
+            {:else if item.weight_type === 'range' && item.weight_min != null && item.weight_max != null}
+              <span class="text-xs text-base-content/40 mr-3">{item.weight_min}–{item.weight_max} kg</span>
+            {/if}
             <button
-              class="btn btn-ghost btn-sm text-error"
+              class="text-base-content/30 hover:text-error transition-colors text-xs"
               onclick={() => deleteEquipment({ id: item.id })}
               aria-label="Delete {item.name}"
             >✕</button>
-          </li>
+          </div>
         {/each}
-      </ul>
-    {/if}
+      {/if}
+    </div>
 
     {#if !showForm}
-      <button class="btn btn-primary btn-sm" onclick={() => showForm = true}>+ Add equipment</button>
+      <button class="btn btn-sm btn-outline w-full" onclick={() => showForm = true}>+ Add equipment</button>
     {:else}
-      <form class="card bg-base-200 p-4 space-y-3" onsubmit={(e) => { e.preventDefault(); handleAdd(); }}>
-        <div class="form-control">
-          <label class="label label-text" for="eq-name">Name</label>
-          <input id="eq-name" class="input input-bordered input-sm" bind:value={name} required />
-        </div>
-
-        <div class="form-control">
-          <label class="label label-text" for="eq-weight-type">Weight</label>
-          <select id="eq-weight-type" class="select select-bordered select-sm" bind:value={weightType}>
-            <option value="none">None</option>
-            <option value="single">Single weight</option>
-            <option value="range">Weight range</option>
+      <form class="bg-base-200 rounded-2xl p-4 space-y-3" onsubmit={(e) => { e.preventDefault(); handleAdd(); }}>
+        <div class="flex gap-2">
+          <input
+            class="input input-sm input-bordered flex-1"
+            placeholder="Name"
+            bind:value={name}
+            required
+          />
+          <select class="select select-sm select-bordered" bind:value={weightType}>
+            <option value="none">No weight</option>
+            <option value="single">Single</option>
+            <option value="range">Range</option>
           </select>
         </div>
 
         {#if weightType === 'single'}
-          <div class="form-control">
-            <label class="label label-text" for="eq-weight-min">Weight (kg)</label>
-            <input id="eq-weight-min" type="number" step="0.1" class="input input-bordered input-sm" bind:value={weightMin} required />
-          </div>
+          <input type="number" step="0.1" placeholder="kg" class="input input-sm input-bordered w-full" bind:value={weightMin} required />
         {:else if weightType === 'range'}
           <div class="flex gap-2">
-            <div class="form-control flex-1">
-              <label class="label label-text" for="eq-min">Min kg</label>
-              <input id="eq-min" type="number" step="0.1" class="input input-bordered input-sm" bind:value={weightMin} required />
-            </div>
-            <div class="form-control flex-1">
-              <label class="label label-text" for="eq-max">Max kg</label>
-              <input id="eq-max" type="number" step="0.1" class="input input-bordered input-sm" bind:value={weightMax} required />
-            </div>
+            <input type="number" step="0.1" placeholder="Min kg" class="input input-sm input-bordered flex-1" bind:value={weightMin} required />
+            <input type="number" step="0.1" placeholder="Max kg" class="input input-sm input-bordered flex-1" bind:value={weightMax} required />
           </div>
         {/if}
 
         <div class="flex gap-2">
-          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+          <button type="submit" class="btn btn-primary btn-sm flex-1">Save</button>
           <button type="button" class="btn btn-ghost btn-sm" onclick={() => showForm = false}>Cancel</button>
         </div>
       </form>
     {/if}
+
   {/await}
 </div>
