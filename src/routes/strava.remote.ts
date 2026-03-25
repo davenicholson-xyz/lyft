@@ -1,13 +1,21 @@
 import { query, command } from '$app/server';
 import { db } from '$lib/server/db';
-import { strava_tokens, sessions, plans } from '$lib/server/db/schema';
+import { strava_tokens, strava_webhook, sessions, plans } from '$lib/server/db/schema';
 import { eq, and } from 'drizzle-orm';
+import { env } from '$env/dynamic/private';
 import { getValidToken } from '$lib/server/strava';
 import { getMonthData, getDayDetail } from './calendar.remote';
 
-export const getStravaStatus = query(() =>
-  db.select().from(strava_tokens).limit(1).then(rows => ({ connected: rows.length > 0 }))
-);
+export const getStravaStatus = query(async () => {
+  const [[token], [webhook]] = await Promise.all([
+    db.select().from(strava_tokens).limit(1),
+    db.select().from(strava_webhook).limit(1),
+  ]);
+  return {
+    connected:  !!token,
+    webhookId:  webhook?.subscription_id ?? null,
+  };
+});
 
 export const syncStrava = command(async () => {
   const token = await getValidToken();
@@ -80,4 +88,37 @@ export const syncStrava = command(async () => {
   ]);
 
   return { synced: affectedDates.size };
+});
+
+export const registerWebhook = command(async () => {
+  const res = await fetch('https://www.strava.com/api/v3/push_subscriptions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id:     parseInt(env.STRAVA_CLIENT_ID, 10),
+      client_secret: env.STRAVA_CLIENT_SECRET,
+      callback_url:  `${env.PUBLIC_URL}/strava/webhook`,
+      verify_token:  env.STRAVA_WEBHOOK_TOKEN,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { message?: string }).message ?? `Strava error ${res.status}`);
+  }
+  const data = await res.json() as { id: number };
+  await db.delete(strava_webhook);
+  await db.insert(strava_webhook).values({ subscription_id: data.id });
+  await getStravaStatus().refresh();
+});
+
+export const unregisterWebhook = command(async () => {
+  const [webhook] = await db.select().from(strava_webhook).limit(1);
+  if (!webhook) return;
+  await fetch(
+    `https://www.strava.com/api/v3/push_subscriptions/${webhook.subscription_id}` +
+    `?client_id=${env.STRAVA_CLIENT_ID}&client_secret=${env.STRAVA_CLIENT_SECRET}`,
+    { method: 'DELETE' }
+  );
+  await db.delete(strava_webhook);
+  await getStravaStatus().refresh();
 });

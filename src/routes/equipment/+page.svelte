@@ -51,19 +51,17 @@
       <button class="btn btn-sm btn-outline w-full" onclick={() => showForm = true}>+ Add equipment</button>
     {:else}
       <form class="bg-base-200 rounded-2xl p-4 space-y-3" onsubmit={(e) => { e.preventDefault(); handleAdd(); }}>
-        <div class="flex gap-2">
-          <input
-            class="input input-sm input-bordered flex-1"
-            placeholder="Name"
-            bind:value={name}
-            required
-          />
-          <select class="select select-sm select-bordered" bind:value={weightType}>
-            <option value="none">No weight</option>
-            <option value="single">Single</option>
-            <option value="range">Range</option>
-          </select>
-        </div>
+        <input
+          class="input input-sm input-bordered w-full"
+          placeholder="Name"
+          bind:value={name}
+          required
+        />
+        <select class="select select-sm select-bordered w-full" bind:value={weightType}>
+          <option value="none">No weight</option>
+          <option value="single">Single weight</option>
+          <option value="range">Weight range</option>
+        </select>
 
         {#if weightType === 'single'}
           <input type="number" step="0.1" placeholder="kg" class="input input-sm input-bordered w-full" bind:value={weightMin} required />

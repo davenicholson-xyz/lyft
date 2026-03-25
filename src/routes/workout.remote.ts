@@ -3,6 +3,12 @@ import * as v from 'valibot';
 import { db } from '$lib/server/db';
 import { plans, workout_logs, exercise_config } from '$lib/server/db/schema';
 import { and, eq, lt, desc } from 'drizzle-orm';
+import { getMonthData } from './calendar.remote';
+
+const DateExSchema = v.object({
+  date: v.pipe(v.string(), v.regex(/^\d{4}-\d{2}-\d{2}$/)),
+  name: v.pipe(v.string(), v.minLength(1)),
+});
 
 const DateSchema       = v.pipe(v.string(), v.regex(/^\d{4}-\d{2}-\d{2}$/));
 const SaveSetSchema    = v.object({
@@ -93,6 +99,7 @@ export const saveSet = command(SaveSetSchema, async ({ date, exercise_name, set_
     weight_kg:  weight_kg ?? null,
     created_at: new Date().toISOString(),
   });
+
   await getWorkout(date).refresh();
 });
 
@@ -100,4 +107,52 @@ export const setExerciseUnit = command(SetUnitSchema, async ({ name, unit }) => 
   await db.insert(exercise_config)
     .values({ name, unit })
     .onConflictDoUpdate({ target: exercise_config.name, set: { unit } });
+});
+
+export const finishWorkout = command(DateSchema, async (date) => {
+  await db.update(plans)
+    .set({ status: 'done' })
+    .where(and(eq(plans.date, date), eq(plans.type, 'workout')));
+  await getMonthData(date.slice(0, 7)).refresh();
+});
+
+export const getExerciseNames = query(async () => {
+  const configs = await db.select({ name: exercise_config.name }).from(exercise_config);
+  const logs    = await db.select({ name: workout_logs.exercise_name }).from(workout_logs);
+  const all = new Set([...configs.map(c => c.name), ...logs.map(l => l.name)]);
+  return [...all].sort();
+});
+
+export const addExerciseToPlan = command(DateExSchema, async ({ date, name }) => {
+  const [plan] = await db.select().from(plans)
+    .where(and(eq(plans.date, date), eq(plans.type, 'workout')))
+    .limit(1);
+  if (!plan) throw new Error('No workout plan for this date');
+
+  const notes = plan.notes ? `${plan.notes.trimEnd()}, ${name} 3×10` : `Workout: ${name} 3×10`;
+  await db.update(plans).set({ notes }).where(eq(plans.id, plan.id));
+  await db.insert(exercise_config).values({ name, unit: 'weighted' }).onConflictDoNothing();
+  await getWorkout(date).refresh();
+  await getExerciseNames().refresh();
+});
+
+export const removeExerciseFromPlan = command(DateExSchema, async ({ date, name }) => {
+  const [plan] = await db.select().from(plans)
+    .where(and(eq(plans.date, date), eq(plans.type, 'workout')))
+    .limit(1);
+  if (!plan?.notes) return;
+
+  const colonIdx = plan.notes.indexOf(':');
+  const title    = colonIdx !== -1 ? plan.notes.slice(0, colonIdx).trim() : null;
+  const exStr    = colonIdx !== -1 ? plan.notes.slice(colonIdx + 1) : plan.notes;
+
+  const kept = exStr.split(',').map(s => s.trim()).filter(part => {
+    const m      = part.match(/^(.+?)\s+\d+[×x]\d+/i);
+    const exName = m ? m[1].trim() : part;
+    return exName.toLowerCase() !== name.toLowerCase();
+  });
+
+  const newNotes = title ? `${title}: ${kept.join(', ')}` : kept.join(', ');
+  await db.update(plans).set({ notes: newNotes }).where(eq(plans.id, plan.id));
+  await getWorkout(date).refresh();
 });

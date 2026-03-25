@@ -1,10 +1,96 @@
 <script lang="ts">
   import { getClaudeSpend } from '../settings.remote';
-  import { getStravaStatus } from '../strava.remote';
+  import { getStravaStatus, registerWebhook, unregisterWebhook } from '../strava.remote';
+  import { importData } from '../data.remote';
+
+  let webhookWorking = $state(false);
+  let stravaPromise  = $state(getStravaStatus());
+
+  let importing      = $state(false);
+  let importError    = $state<string | null>(null);
+  let importSuccess  = $state(false);
+  let fileInputEl    = $state<HTMLInputElement | null>(null);
+
+  async function handleImport(e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    importing     = true;
+    importError   = null;
+    importSuccess = false;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      await importData(data);
+      importSuccess = true;
+    } catch (err) {
+      importError = err instanceof Error ? err.message : 'Import failed';
+    } finally {
+      importing = false;
+      if (fileInputEl) fileInputEl.value = '';
+    }
+  }
+
+  async function handleRegister() {
+    webhookWorking = true;
+    await registerWebhook();
+    stravaPromise  = getStravaStatus();
+    webhookWorking = false;
+  }
+
+  async function handleUnregister() {
+    webhookWorking = true;
+    await unregisterWebhook();
+    stravaPromise  = getStravaStatus();
+    webhookWorking = false;
+  }
 </script>
 
 <div class="max-w-lg mx-auto p-4 pb-24">
   <h1 class="text-xl font-bold mb-6 pt-2">Settings</h1>
+
+  <!-- Data management -->
+  <section class="mb-6">
+    <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/40 mb-3">Data</h2>
+    <div class="bg-base-200 rounded-2xl divide-y divide-base-300 mb-3">
+      <div class="px-4 py-3 flex items-center justify-between">
+        <div>
+          <div class="text-sm font-medium">Export</div>
+          <div class="text-xs text-base-content/50">Download all data as JSON</div>
+        </div>
+        <a href="/api/export" download class="btn btn-xs btn-outline">Export</a>
+      </div>
+      <div class="px-4 py-3 flex items-center justify-between">
+        <div>
+          <div class="text-sm font-medium">Import</div>
+          <div class="text-xs text-base-content/50">Restore from a JSON export — replaces all data</div>
+        </div>
+        <button class="btn btn-xs btn-outline" onclick={() => fileInputEl?.click()} disabled={importing}>
+          {importing ? 'Importing…' : 'Import'}
+        </button>
+        <input bind:this={fileInputEl} type="file" accept=".json" class="hidden" onchange={handleImport} />
+      </div>
+    </div>
+    {#if importSuccess}
+      <p class="text-xs text-success px-1 mb-3">Import successful. Reload the app to see your data.</p>
+    {/if}
+    {#if importError}
+      <p class="text-xs text-error px-1 mb-3">{importError}</p>
+    {/if}
+  </section>
+
+  <!-- Exercises -->
+  <section class="mb-6">
+    <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/40 mb-3">Exercises</h2>
+    <a href="/exercises" class="flex items-center justify-between bg-base-200 rounded-2xl px-4 py-3 hover:bg-base-300 transition-colors">
+      <div>
+        <div class="text-sm font-medium">Exercises</div>
+        <div class="text-xs text-base-content/50">Rename or merge duplicate exercise names</div>
+      </div>
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-base-content/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+      </svg>
+    </a>
+  </section>
 
   <!-- Claude -->
   <section class="mb-6">
@@ -44,7 +130,7 @@
   <section class="mb-6">
     <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/40 mb-3">Strava</h2>
     <div class="bg-base-200 rounded-2xl divide-y divide-base-300">
-      {#await getStravaStatus()}
+      {#await stravaPromise}
         <div class="px-4 py-3 flex justify-center">
           <span class="loading loading-spinner loading-sm"></span>
         </div>
@@ -55,6 +141,25 @@
             <span class="badge badge-success badge-sm">Connected</span>
           {:else}
             <a href="/strava/connect" class="text-sm text-primary">Connect ↗</a>
+          {/if}
+        </div>
+        <div class="px-4 py-3 flex items-center justify-between">
+          <span class="text-sm">Webhook</span>
+          {#if status.webhookId != null}
+            <div class="flex items-center gap-2">
+              <span class="badge badge-success badge-sm">Active</span>
+              <button
+                class="text-xs text-base-content/40 hover:text-error transition-colors"
+                disabled={webhookWorking}
+                onclick={handleUnregister}
+              >Remove</button>
+            </div>
+          {:else}
+            <button
+              class="btn btn-xs btn-outline"
+              disabled={!status.connected || webhookWorking}
+              onclick={handleRegister}
+            >{webhookWorking ? 'Registering…' : 'Register'}</button>
           {/if}
         </div>
       {/await}

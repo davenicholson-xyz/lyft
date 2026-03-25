@@ -2,7 +2,7 @@
   import { getMonthData, getDayDetail, addPlan, deletePlan } from './calendar.remote';
   import { goto } from '$app/navigation';
   import { getStravaStatus, syncStrava } from './strava.remote';
-  import { generateWeekPlan, acceptWeekPlan } from './planning.remote';
+  import { generateWeekPlan, acceptWeekPlan, generateDayWorkout, acceptDayWorkout } from './planning.remote';
 
   type GeneratedPlan = { summary: string; days: { date: string; type: string; notes: string }[]; runDates: string[]; existingDates: string[] };
 
@@ -19,11 +19,16 @@
   let syncResult       = $state<string | null>(null);
   let addingRun        = $state(false);
   let runDistance      = $state('');
-  let planLoading      = $state(false);
-  let planError        = $state<string | null>(null);
-  let generatedPlan    = $state<GeneratedPlan | null>(null);
-  let regenNotes       = $state('');
-  let showRegenInput   = $state(false);
+  let planLoading        = $state(false);
+  let planError          = $state<string | null>(null);
+  let generatedPlan      = $state<GeneratedPlan | null>(null);
+  let regenNotes         = $state('');
+  let showRegenInput     = $state(false);
+  let confirmPlanEl      = $state<HTMLDialogElement | null>(null);
+
+  let dayWorkoutLoading  = $state(false);
+  let dayWorkoutPreview  = $state<string | null>(null);
+  let dayWorkoutError    = $state<string | null>(null);
 
   async function handleSync() {
     syncing = true;
@@ -149,9 +154,11 @@
   }
 
   function closePanel() {
-    selectedDate  = null;
-    addingRun     = false;
-    runDistance   = '';
+    selectedDate      = null;
+    addingRun         = false;
+    runDistance       = '';
+    dayWorkoutPreview = null;
+    dayWorkoutError   = null;
   }
 
   async function handleDeletePlan(id: number, date: string) {
@@ -187,9 +194,19 @@
     }
   }
 
-  async function handleAcceptPlan() {
+  function handleAcceptPlan() {
+    if (!generatedPlan) return;
+    if (generatedPlan.existingDates.length > 0) {
+      confirmPlanEl?.showModal();
+    } else {
+      doAcceptPlan();
+    }
+  }
+
+  async function doAcceptPlan() {
     if (!generatedPlan) return;
     await acceptWeekPlan({ days: generatedPlan.days as { date: string; type: 'run' | 'rest'; notes: string }[] });
+    confirmPlanEl?.close();
     generatedPlan = null;
   }
 
@@ -240,18 +257,17 @@
         <span class="loading loading-spinner loading-xs"></span>
       {:then status}
         {#if status.connected}
-          <button class="btn btn-sm btn-ghost gap-1" onclick={handleSync} disabled={syncing}>
+          <button class="btn btn-sm btn-ghost text-[#FC4C02]" onclick={handleSync} disabled={syncing}>
             {#if syncing}
               <span class="loading loading-spinner loading-xs"></span>
             {:else}
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-              </svg>
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 16 16"><path fill="currentColor" d="M6.731 0L2 9.125h2.788L6.73 5.497l1.93 3.628h2.766zm4.694 9.125l-1.372 2.756L8.66 9.125H6.547L10.053 16l3.484-6.875z"/></svg>
             {/if}
-            Strava
           </button>
         {:else}
-          <a href="/strava/connect" class="btn btn-sm btn-ghost text-[#FC4C02]">Connect Strava</a>
+          <a href="/strava/connect" class="btn btn-sm btn-ghost text-[#FC4C02]">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 16 16"><path fill="currentColor" d="M6.731 0L2 9.125h2.788L6.73 5.497l1.93 3.628h2.766zm4.694 9.125l-1.372 2.756L8.66 9.125H6.547L10.053 16l3.484-6.875z"/></svg>
+          </a>
         {/if}
       {/await}
     </div>
@@ -395,7 +411,7 @@
             return sum + (m ? parseFloat(m[1]) : 0);
           }, 0)}
         {#if plannedKm > 0 || actualKm > 0}
-          <div class="mt-4 space-y-2">
+          <div class="mt-4 space-y-3">
             <div class="flex items-center gap-1.5 text-xs font-semibold text-base-content/50 uppercase tracking-wide">
               {@render activityIcon('run', true, 'h-3.5 w-3.5')}
               Running
@@ -425,6 +441,51 @@
             </div>
           </div>
         {/if}
+
+        <!-- Weekly workouts -->
+        {@const weekWorkouts = weekMonthData.plans
+          .filter(p => weekDateStrs.includes(p.date) && p.type === 'workout')
+          .sort((a, b) => a.date.localeCompare(b.date))}
+        {#if weekWorkouts.length > 0}
+          <div class="mt-6 space-y-3">
+            <div class="flex items-center gap-1.5 text-xs font-semibold text-base-content/50 uppercase tracking-wide">
+              {@render activityIcon('workout', true, 'h-3.5 w-3.5')}
+              Workouts
+            </div>
+            {#each weekWorkouts as plan}
+              {@const colonIdx  = (plan.notes ?? '').indexOf(':')}
+              {@const title     = colonIdx !== -1 ? plan.notes!.slice(0, colonIdx).trim() : 'Workout'}
+              {@const exStr     = colonIdx !== -1 ? plan.notes!.slice(colonIdx + 1) : plan.notes ?? ''}
+              {@const exercises = exStr.split(',').map(s => s.trim()).filter(Boolean)}
+              <button class="rounded-xl bg-base-200 overflow-hidden w-full text-left hover:bg-base-300 transition-colors" onclick={() => goto(`/workout/${plan.date}`)}>
+                <div class="flex items-center justify-between px-3 py-2.5">
+                  <span class="text-xs font-semibold">{new Date(plan.date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs text-base-content/40">{title}</span>
+                    {#if plan.status === 'done'}
+                      <span class="text-success text-xs leading-none">✓</span>
+                    {/if}
+                  </div>
+                </div>
+                {#if exercises.length > 0}
+                  <div class="border-t border-base-300 px-3 py-2 space-y-1">
+                    {#each exercises as ex}
+                      {@const m      = ex.match(/^(.+?)\s+(\d+[×x]\d+\w*)$/i)}
+                      {@const name   = m ? m[1].trim() : ex}
+                      {@const scheme = m ? m[2] : null}
+                      <div class="flex items-center justify-between">
+                        <span class="text-xs text-base-content/60 capitalize">{name}</span>
+                        {#if scheme}
+                          <span class="text-xs text-base-content/30 tabular-nums">{scheme}</span>
+                        {/if}
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+              </button>
+            {/each}
+          </div>
+        {/if}
       {/await}
     {/if}
   {/await}
@@ -432,39 +493,65 @@
 
 <!-- Generated plan — full screen -->
 {#if generatedPlan}
-  {@const allDays = [
-    ...generatedPlan.runDates.map(date => ({ date, isRun: true, notes: '' })),
-    ...generatedPlan.days.map(d => ({ date: d.date, isRun: false, notes: d.notes })),
-  ].sort((a, b) => a.date.localeCompare(b.date))}
+  {@const allDays = buildWeekDays(currentWeekStart).map(d => {
+    const date    = toISO(d);
+    const isRun   = generatedPlan.runDates.includes(date);
+    const workout = generatedPlan.days.find(x => x.date === date);
+    const isPast  = d < new Date(new Date().toDateString());
+    return { date, isRun, workout: workout ?? null, isPast };
+  })}
   <div class="fixed inset-0 z-50 bg-base-100 overflow-y-auto">
-    <div class="max-w-lg mx-auto p-4 pb-32">
+    <div class="max-w-lg mx-auto px-4 pt-5 pb-36">
 
       <!-- Header -->
-      <div class="flex items-center justify-between mb-1 pt-2">
-        <h2 class="font-semibold text-lg">Week Plan</h2>
+      <div class="flex items-center justify-between mb-1">
+        <div>
+          <h2 class="font-bold text-xl">Week Plan</h2>
+          {#if generatedPlan.summary}
+            <p class="text-sm text-base-content/50 mt-0.5">{generatedPlan.summary}</p>
+          {/if}
+        </div>
         <button class="btn btn-ghost btn-sm btn-circle" onclick={() => generatedPlan = null}>✕</button>
       </div>
 
       <!-- Days -->
-      <div class="space-y-5">
+      <div class="mt-5 space-y-3">
         {#each allDays as day}
-          <div class="{day.isRun ? 'opacity-40' : ''}">
-            <div class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-1">
-              {dayName(day.date)} · {day.date}
-            </div>
-            {#if day.isRun}
-              <p class="text-sm italic">Running</p>
-            {:else}
-              {@const colonIdx = day.notes.indexOf(':')}
-              {@const title = colonIdx !== -1 ? day.notes.slice(0, colonIdx).trim() : null}
-              {@const exerciseStr = colonIdx !== -1 ? day.notes.slice(colonIdx + 1) : day.notes}
-              {#if title}
-                <p class="text-sm font-semibold mb-1">{title}</p>
+          {@const isWorkout = !!day.workout}
+          {@const label     = day.isPast && !day.isRun && !day.workout ? 'Past'
+                            : day.isRun   ? 'Run'
+                            : !day.workout ? 'Rest'
+                            : null}
+          {@const colonIdx    = day.workout ? day.workout.notes.indexOf(':') : -1}
+          {@const title       = isWorkout && colonIdx !== -1 ? day.workout!.notes.slice(0, colonIdx).trim() : null}
+          {@const exerciseStr = isWorkout ? (colonIdx !== -1 ? day.workout!.notes.slice(colonIdx + 1) : day.workout!.notes) : ''}
+          {@const exercises   = isWorkout ? exerciseStr.split(',').map(s => s.trim()).filter(Boolean) : []}
+
+          <div class="rounded-2xl overflow-hidden {isWorkout ? 'bg-base-200' : 'bg-base-200/40'}">
+            <div class="flex items-center gap-3 px-4 py-3">
+              {#if day.isRun}
+                {@render activityIcon('run', false, 'h-5 w-5 shrink-0')}
+              {:else if isWorkout}
+                {@render activityIcon('workout', true, 'h-5 w-5 shrink-0')}
+              {:else}
+                {@render activityIcon('rest', false, 'h-5 w-5 shrink-0')}
               {/if}
-              <ul class="space-y-1">
-                {#each exerciseStr.split(',').map(s => s.trim()).filter(Boolean) as exercise}
-                  <li class="text-sm flex gap-2">
-                    <span class="text-base-content/30 select-none">–</span>
+              <div class="flex-1 min-w-0">
+                <span class="text-xs font-semibold uppercase tracking-wide text-base-content/40">
+                  {new Date(day.date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}
+                </span>
+                {#if label}
+                  <p class="text-sm text-base-content/40 italic">{label}</p>
+                {:else if title}
+                  <p class="text-sm font-semibold">{title}</p>
+                {/if}
+              </div>
+            </div>
+            {#if exercises.length > 0}
+              <ul class="px-4 pb-3 space-y-1 border-t border-base-300">
+                {#each exercises as exercise}
+                  <li class="text-sm text-base-content/70 flex gap-2 pt-1">
+                    <span class="text-base-content/25 select-none shrink-0">–</span>
                     {exercise}
                   </li>
                 {/each}
@@ -476,7 +563,7 @@
     </div>
 
     <!-- Sticky footer -->
-    <div class="fixed bottom-0 left-0 right-0 bg-base-100 border-t border-base-200 p-4 max-w-lg mx-auto">
+    <div class="fixed bottom-0 left-0 right-0 bg-base-100/95 backdrop-blur border-t border-base-200 p-4 max-w-lg mx-auto">
       {#if !showRegenInput}
         <div class="flex gap-2">
           <button class="btn btn-primary flex-1" onclick={handleAcceptPlan}>Accept plan</button>
@@ -502,6 +589,22 @@
     </div>
   </div>
 {/if}
+
+<!-- Confirm overwrite plan dialog -->
+<dialog bind:this={confirmPlanEl} class="modal modal-bottom sm:modal-middle">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg mb-2">Replace existing plan?</h3>
+    <p class="text-base-content/60 text-sm">
+      {generatedPlan?.existingDates.length ?? 0} day{(generatedPlan?.existingDates.length ?? 0) === 1 ? '' : 's'} already {(generatedPlan?.existingDates.length ?? 0) === 1 ? 'has' : 'have'} a plan.
+      Accepting will remove the old plan and replace it with the new one.
+    </p>
+    <div class="modal-action">
+      <button class="btn btn-ghost" onclick={() => confirmPlanEl?.close()}>Cancel</button>
+      <button class="btn btn-primary" onclick={doAcceptPlan}>Replace &amp; accept</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
 
 {#snippet activityIcon(type: string, solid: boolean, cls: string)}
   {@const color = solid ? (typeColors[type] ?? '#9ca3af') : '#9ca3af'}
@@ -585,6 +688,8 @@
               </div>
             {/if}
           {:else}
+            {@const isRunDay     = dayData.plans.some(p => p.type === 'run') || dayData.sessions.some(s => s.type === 'run')}
+            {@const hasWorkout   = dayData.plans.some(p => p.type === 'workout')}
             <div class="bg-base-200 rounded-2xl overflow-hidden">
               {#each dayData.sessions as session, i}
                 {@const isLast = i === dayData.sessions.length - 1 && dayData.plans.filter(p => !dayData.sessions.some(s => s.type === p.type)).length === 0}
@@ -638,6 +743,64 @@
                 </div>
               {/each}
             </div>
+
+            <!-- Add workout to run day -->
+            {#if isRunDay && !hasWorkout}
+              {#if dayWorkoutPreview}
+                {@const colonIdx  = dayWorkoutPreview.indexOf(':')}
+                {@const title     = colonIdx !== -1 ? dayWorkoutPreview.slice(0, colonIdx).trim() : null}
+                {@const exStr     = colonIdx !== -1 ? dayWorkoutPreview.slice(colonIdx + 1) : dayWorkoutPreview}
+                <div class="mt-3 bg-base-200 rounded-2xl p-4 space-y-3">
+                  {#if title}<p class="text-sm font-semibold">{title}</p>{/if}
+                  <ul class="space-y-0.5">
+                    {#each exStr.split(',').map(s => s.trim()).filter(Boolean) as ex}
+                      <li class="text-xs text-base-content/50 flex gap-1.5">
+                        <span class="text-base-content/25 select-none">–</span>{ex}
+                      </li>
+                    {/each}
+                  </ul>
+                  <div class="flex gap-2 pt-1">
+                    <button
+                      class="btn btn-primary btn-sm flex-1"
+                      onclick={async () => {
+                        await acceptDayWorkout({ date: selectedDate!, notes: dayWorkoutPreview! });
+                        closePanel();
+                      }}
+                    >Add to plan</button>
+                    <button class="btn btn-ghost btn-sm" onclick={() => dayWorkoutPreview = null}>Discard</button>
+                  </div>
+                </div>
+              {:else}
+                <div class="mt-3">
+                  {#if dayWorkoutError}
+                    <p class="text-xs text-error mb-2">{dayWorkoutError}</p>
+                  {/if}
+                  <button
+                    class="btn btn-outline btn-sm w-full"
+                    disabled={dayWorkoutLoading}
+                    onclick={async () => {
+                      dayWorkoutLoading = true;
+                      dayWorkoutError   = null;
+                      try {
+                        const result = await generateDayWorkout(selectedDate!);
+                        dayWorkoutPreview = result.notes;
+                      } catch (e) {
+                        dayWorkoutError = e instanceof Error ? e.message : 'Failed to generate';
+                      } finally {
+                        dayWorkoutLoading = false;
+                      }
+                    }}
+                  >
+                    {#if dayWorkoutLoading}
+                      <span class="loading loading-spinner loading-xs"></span>
+                      Generating…
+                    {:else}
+                      + Add workout
+                    {/if}
+                  </button>
+                </div>
+              {/if}
+            {/if}
           {/if}
         {/await}
       </div>
