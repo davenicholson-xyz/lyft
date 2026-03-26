@@ -53,6 +53,13 @@ export const exercise_config = sqliteTable('exercise_config', {
   unit: text('unit').notNull().default('weighted'), // 'weighted' | 'reps' | 'timed'
 });
 
+export const weight_logs = sqliteTable('weight_logs', {
+  id:         integer('id').primaryKey({ autoIncrement: true }),
+  date:       text('date').notNull(),       // YYYY-MM-DD
+  weight_kg:  real('weight_kg').notNull(),
+  created_at: text('created_at').notNull(),
+});
+
 export const strava_webhook = sqliteTable('strava_webhook', {
   id:              integer('id').primaryKey({ autoIncrement: true }),
   subscription_id: integer('subscription_id').notNull(),

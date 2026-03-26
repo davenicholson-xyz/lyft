@@ -1,6 +1,6 @@
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';
-import { plans, sessions, workout_logs, training_notes, equipment, exercise_config } from '$lib/server/db/schema';
+import { plans, sessions, workout_logs, training_notes, equipment, exercise_config, weight_logs } from '$lib/server/db/schema';
 
 export const GET: RequestHandler = async () => {
   const [
@@ -10,6 +10,7 @@ export const GET: RequestHandler = async () => {
     notesData,
     equipmentData,
     exerciseConfigData,
+    weightData,
   ] = await Promise.all([
     db.select().from(plans),
     db.select().from(sessions),
@@ -17,6 +18,7 @@ export const GET: RequestHandler = async () => {
     db.select().from(training_notes),
     db.select().from(equipment),
     db.select().from(exercise_config),
+    db.select().from(weight_logs),
   ]);
 
   const payload = {
@@ -28,6 +30,7 @@ export const GET: RequestHandler = async () => {
     training_notes:  notesData,
     equipment:       equipmentData,
     exercise_config: exerciseConfigData,
+    weight_logs:     weightData,
   };
 
   const filename = `lyft-export-${new Date().toISOString().slice(0, 10)}.json`;
