@@ -22,6 +22,7 @@ export const strava_tokens = sqliteTable('strava_tokens', {
   access_token:  text('access_token').notNull(),
   refresh_token: text('refresh_token').notNull(),
   expires_at:    integer('expires_at').notNull(),  // unix seconds
+  last_sync_at:  text('last_sync_at'),             // ISO timestamp of last successful sync
 });
 
 export const workout_logs = sqliteTable('workout_logs', {
@@ -63,6 +64,27 @@ export const weight_logs = sqliteTable('weight_logs', {
 export const strava_webhook = sqliteTable('strava_webhook', {
   id:              integer('id').primaryKey({ autoIncrement: true }),
   subscription_id: integer('subscription_id').notNull(),
+});
+
+export const recovery_logs = sqliteTable('recovery_logs', {
+  id:          integer('id').primaryKey({ autoIncrement: true }),
+  date:        text('date').notNull(),       // YYYY-MM-DD
+  sleep_hours: real('sleep_hours'),          // optional
+  soreness:    integer('soreness'),          // 1–10, optional
+  notes:       text('notes'),
+  created_at:  text('created_at').notNull(),
+});
+
+export const workout_templates = sqliteTable('workout_templates', {
+  id:         integer('id').primaryKey({ autoIncrement: true }),
+  name:       text('name').notNull(),
+  notes:      text('notes').notNull(),  // same format as plan notes: "Title: ex1 3×10"
+  created_at: text('created_at').notNull(),
+});
+
+export const user_settings = sqliteTable('user_settings', {
+  key:   text('key').primaryKey(),
+  value: text('value').notNull(),
 });
 
 export const claude_usage = sqliteTable('claude_usage', {

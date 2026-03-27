@@ -2,6 +2,8 @@
   import { getClaudeSpend } from '../settings.remote';
   import { getStravaStatus, registerWebhook, unregisterWebhook } from '../strava.remote';
   import { importData } from '../data.remote';
+  import { getUserSettings, setUserSetting } from '../user-settings.remote';
+  import { getTemplates, deleteTemplate } from '../templates.remote';
 
   let webhookWorking = $state(false);
   let stravaPromise  = $state(getStravaStatus());
@@ -43,6 +45,25 @@
     stravaPromise  = getStravaStatus();
     webhookWorking = false;
   }
+
+  let settingsPromise   = $state(getUserSettings());
+  let templatesPromise  = $state(getTemplates());
+
+  async function handlePhaseChange(e: Event) {
+    const val = (e.target as HTMLSelectElement).value;
+    await setUserSetting({ key: 'phase', value: val });
+    settingsPromise = getUserSettings();
+  }
+
+  async function handleRestrictionsBlur(e: Event) {
+    const val = (e.target as HTMLInputElement).value.trim();
+    await setUserSetting({ key: 'restrictions', value: val });
+  }
+
+  async function handleDeleteTemplate(id: number) {
+    await deleteTemplate({ id });
+    templatesPromise = getTemplates();
+  }
 </script>
 
 <div class="max-w-lg mx-auto p-4 pb-24">
@@ -76,6 +97,81 @@
     {#if importError}
       <p class="text-xs text-error px-1 mb-3">{importError}</p>
     {/if}
+  </section>
+
+  <!-- Training context -->
+  <section class="mb-6">
+    <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/40 mb-3">Training</h2>
+    {#await settingsPromise}
+      <div class="bg-base-200 rounded-2xl px-4 py-3"><span class="loading loading-spinner loading-xs"></span></div>
+    {:then settings}
+      <div class="bg-base-200 rounded-2xl divide-y divide-base-300">
+        <div class="px-4 py-3 flex items-center justify-between">
+          <span class="text-sm">Phase</span>
+          <select
+            class="select select-sm select-ghost text-right"
+            value={settings.phase ?? ''}
+            onchange={handlePhaseChange}
+          >
+            <option value="">Not set</option>
+            <option value="hypertrophy">Hypertrophy</option>
+            <option value="strength">Strength</option>
+            <option value="endurance">Endurance</option>
+            <option value="deload">Deload</option>
+            <option value="maintenance">Maintenance</option>
+          </select>
+        </div>
+        <div class="px-4 py-3">
+          <span class="text-sm block mb-1.5">Movement restrictions</span>
+          <input
+            type="text"
+            class="input input-sm input-bordered w-full"
+            placeholder="e.g. no overhead press, knee injury…"
+            value={settings.restrictions ?? ''}
+            onblur={handleRestrictionsBlur}
+          />
+        </div>
+        <a href="/recovery" class="flex items-center justify-between px-4 py-3 hover:bg-base-300 transition-colors">
+          <span class="text-sm">Recovery log</span>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-base-content/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+        </a>
+        <a href="/analytics" class="flex items-center justify-between px-4 py-3 hover:bg-base-300 transition-colors">
+          <span class="text-sm">Strength analytics</span>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-base-content/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+        </a>
+      </div>
+    {/await}
+  </section>
+
+  <!-- Templates -->
+  <section class="mb-6">
+    <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/40 mb-3">Workout Templates</h2>
+    {#await templatesPromise}
+      <div class="bg-base-200 rounded-2xl px-4 py-3"><span class="loading loading-spinner loading-xs"></span></div>
+    {:then templates}
+      {#if templates.length === 0}
+        <p class="text-xs text-base-content/40 px-1">No templates yet. Save a workout as a template from the workout page.</p>
+      {:else}
+        <div class="bg-base-200 rounded-2xl overflow-hidden">
+          {#each templates as tpl, i (tpl.id)}
+            <div class="flex items-center px-4 py-3 {i < templates.length - 1 ? 'border-b border-base-300' : ''}">
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium">{tpl.name}</p>
+                <p class="text-xs text-base-content/40 truncate">{tpl.notes}</p>
+              </div>
+              <button
+                class="text-base-content/25 hover:text-error transition-colors text-xs ml-3"
+                onclick={() => handleDeleteTemplate(tpl.id)}
+              >✕</button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    {/await}
   </section>
 
   <!-- Exercises -->
@@ -143,6 +239,14 @@
             <a href="/strava/connect" class="text-sm text-primary">Connect ↗</a>
           {/if}
         </div>
+        {#if status.lastSyncAt}
+          <div class="px-4 py-3 flex items-center justify-between">
+            <span class="text-sm text-base-content/50">Last sync</span>
+            <span class="text-xs text-base-content/40">
+              {new Date(status.lastSyncAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+        {/if}
         <div class="px-4 py-3 flex items-center justify-between">
           <span class="text-sm">Webhook</span>
           {#if status.webhookId != null}

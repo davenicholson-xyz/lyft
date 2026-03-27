@@ -1,11 +1,26 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { getWeightLogs, deleteWeightLog } from '../weight.remote';
+  import { getWeightLogs, deleteWeightLog, addWeightLog } from '../weight.remote';
 
-  let logsPromise = $state(getWeightLogs());
+  let logsPromise  = $state(getWeightLogs());
+  let addDialogEl  = $state<HTMLDialogElement | null>(null);
+  let addDate      = $state(new Date().toISOString().slice(0, 10));
+  let addWeight    = $state('');
+  let addSaving    = $state(false);
 
   async function handleDelete(id: number) {
     await deleteWeightLog({ id });
+    logsPromise = getWeightLogs();
+  }
+
+  async function handleAdd() {
+    const kg = parseFloat(addWeight);
+    if (!kg || !addDate) return;
+    addSaving = true;
+    await addWeightLog({ date: addDate, weight_kg: kg });
+    addDialogEl?.close();
+    addSaving   = false;
+    addWeight   = '';
     logsPromise = getWeightLogs();
   }
 
@@ -33,7 +48,8 @@
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
       </svg>
     </button>
-    <h1 class="text-xl font-bold">Weight</h1>
+    <h1 class="text-xl font-bold flex-1">Weight</h1>
+    <button class="btn btn-sm btn-primary" onclick={() => { addDate = new Date().toISOString().slice(0, 10); addDialogEl?.showModal(); }}>+ Add</button>
   </div>
 
   {#await logsPromise}
@@ -91,3 +107,31 @@
     {/if}
   {/await}
 </div>
+
+<dialog bind:this={addDialogEl} class="modal modal-bottom sm:modal-middle">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg mb-4">Add weight</h3>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs text-base-content/50 mb-1 block">Date</label>
+        <input type="date" class="input input-bordered w-full" bind:value={addDate} />
+      </div>
+      <div>
+        <label class="text-xs text-base-content/50 mb-1 block">Weight (kg)</label>
+        <input
+          type="number" inputmode="decimal" step="0.1" placeholder="0.0"
+          class="input input-bordered w-full"
+          bind:value={addWeight}
+          onkeydown={(e) => { if (e.key === 'Enter') handleAdd(); }}
+        />
+      </div>
+    </div>
+    <div class="modal-action">
+      <button class="btn btn-ghost" onclick={() => addDialogEl?.close()}>Cancel</button>
+      <button class="btn btn-primary" disabled={!addWeight || addSaving} onclick={handleAdd}>
+        {addSaving ? 'Saving…' : 'Save'}
+      </button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>

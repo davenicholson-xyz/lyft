@@ -1,7 +1,7 @@
 import { command } from '$app/server';
 import * as v from 'valibot';
 import { db } from '$lib/server/db';
-import { plans, sessions, equipment, training_notes, workout_logs, exercise_config } from '$lib/server/db/schema';
+import { plans, sessions, equipment, training_notes, workout_logs, exercise_config, user_settings } from '$lib/server/db/schema';
 import { inArray, eq, and } from 'drizzle-orm';
 import { getClient, logUsage } from '$lib/server/claude';
 import { getMonthData } from './calendar.remote';
@@ -42,7 +42,7 @@ export const generateWeekPlan = command(GeneratePlanSchema, async ({ weekStart, 
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   })());
 
-  const [weekSessions, weekPlans, gear, userNotes, prevPlans, prevLogs, exConfigs, exLogs] = await Promise.all([
+  const [weekSessions, weekPlans, gear, userNotes, prevPlans, prevLogs, exConfigs, exLogs, settings] = await Promise.all([
     db.select().from(sessions).where(inArray(sessions.date, weekDates)),
     db.select().from(plans).where(inArray(plans.date, weekDates)),
     db.select().from(equipment),
@@ -51,7 +51,9 @@ export const generateWeekPlan = command(GeneratePlanSchema, async ({ weekStart, 
     db.select().from(workout_logs).where(inArray(workout_logs.date, prevWeekDates)),
     db.select({ name: exercise_config.name }).from(exercise_config),
     db.select({ name: workout_logs.exercise_name }).from(workout_logs),
+    db.select().from(user_settings),
   ]);
+  const settingsMap = Object.fromEntries(settings.map(s => [s.key, s.value]));
 
   const knownExercises = [...new Set([...exConfigs.map(r => r.name), ...exLogs.map(r => r.name)])].sort();
 
@@ -123,6 +125,7 @@ ${gearStr}
 
 Known exercise names (use these exact names when applicable — do not invent variations):
 ${knownExercises.length ? knownExercises.map(n => `- ${n}`).join('\n') : 'None yet'}
+${settingsMap.phase ? `\nCurrent training phase: ${settingsMap.phase}` : ''}${settingsMap.restrictions ? `\nMovement restrictions / injuries: ${settingsMap.restrictions}` : ''}
 ${userNotes.length ? `\nTraining requirements (must follow):\n${userNotes.map(n => `- ${n.note}`).join('\n')}` : ''}${prevWeekStr}
 ${notes ? `\nAdditional notes for this week: ${notes}` : ''}
 
@@ -197,14 +200,16 @@ export const generateDayWorkout = command(DateSchema, async (date) => {
   const weekStart = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const weekDates = buildWeekDates(weekStart);
 
-  const [weekPlans, weekSessions, gear, userNotes, dayExConfigs, dayExLogs] = await Promise.all([
+  const [weekPlans, weekSessions, gear, userNotes, dayExConfigs, dayExLogs, daySettings] = await Promise.all([
     db.select().from(plans).where(inArray(plans.date, weekDates)),
     db.select().from(sessions).where(inArray(sessions.date, weekDates)),
     db.select().from(equipment),
     db.select().from(training_notes),
     db.select({ name: exercise_config.name }).from(exercise_config),
     db.select({ name: workout_logs.exercise_name }).from(workout_logs),
+    db.select().from(user_settings),
   ]);
+  const daySettingsMap = Object.fromEntries(daySettings.map(s => [s.key, s.value]));
 
   const knownExercises = [...new Set([...dayExConfigs.map(r => r.name), ...dayExLogs.map(r => r.name)])].sort();
 
@@ -242,6 +247,7 @@ ${gearStr}
 
 Known exercise names (use these exact names when applicable — do not invent variations):
 ${knownExercises.length ? knownExercises.map(n => `- ${n}`).join('\n') : 'None yet'}
+${daySettingsMap.phase ? `\nCurrent training phase: ${daySettingsMap.phase}` : ''}${daySettingsMap.restrictions ? `\nMovement restrictions / injuries: ${daySettingsMap.restrictions}` : ''}
 ${userNotes.length ? `\nTraining requirements (must follow):\n${userNotes.map(n => `- ${n.note}`).join('\n')}` : ''}
 
 Instructions:

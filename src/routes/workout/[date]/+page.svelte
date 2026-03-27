@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { getWorkout, saveSet, setExerciseUnit, getExerciseNames, addExerciseToPlan, removeExerciseFromPlan, finishWorkout } from '../../workout.remote';
+  import { getWorkout, saveSet, getExerciseNames, addExerciseToPlan, removeExerciseFromPlan, finishWorkout } from '../../workout.remote';
+  import { saveTemplate } from '../../templates.remote';
 
   let { data } = $props();
   const { date } = data;
@@ -27,6 +28,23 @@
   let confirmDialogEl  = $state<HTMLDialogElement | null>(null);
   let pendingRemove    = $state<string | null>(null);
 
+  // Save as template
+  let saveTemplateEl   = $state<HTMLDialogElement | null>(null);
+  let templateName     = $state('');
+  let savingTemplate   = $state(false);
+
+  async function handleSaveTemplate() {
+    if (!workout?.exercises.length || !templateName.trim()) return;
+    savingTemplate = true;
+    const notes = workout.title
+      ? `${workout.title}: ${workout.exercises.map(e => `${e.name} ${e.sets}×${e.reps}`).join(', ')}`
+      : workout.exercises.map(e => `${e.name} ${e.sets}×${e.reps}`).join(', ');
+    await saveTemplate({ name: templateName.trim(), notes });
+    saveTemplateEl?.close();
+    templateName   = '';
+    savingTemplate = false;
+  }
+
   let filtered = $derived(
     searchText.trim().length > 0
       ? allExercises.filter(n => n.toLowerCase().includes(searchText.toLowerCase()))
@@ -42,7 +60,7 @@
       const initVisible: Record<string, number>  = {};
       for (const ex of w.exercises) {
         initTypes[ex.name]   = ex.unit;
-        initVisible[ex.name] = Math.max(1, ex.currentLogs.length);
+        initVisible[ex.name] = Math.max(visibleSets[ex.name] ?? 1, ex.currentLogs.length, 1);
         for (let s = 1; s <= Math.max(initVisible[ex.name], ex.sets); s++) {
           const key     = `${ex.name}__${s}`;
           const current = ex.currentLogs.find(l => l.set_number === s);
@@ -65,15 +83,23 @@
     void loadWorkout();
   });
 
-  function addSet(ex: Workout['exercises'][number]) {
+  async function addSet(ex: Workout['exercises'][number]) {
     const current = visibleSets[ex.name] ?? 1;
     const next    = current + 1;
     const prevKey = `${ex.name}__${current}`;
     const newKey  = `${ex.name}__${next}`;
     if (!inputs[newKey]) {
-      inputs[newKey] = { ...inputs[prevKey] } ?? { reps: ex.reps.toString(), weight: '' };
+      inputs[newKey] = inputs[prevKey] ? { ...inputs[prevKey] } : { reps: ex.reps.toString(), weight: '' };
     }
     visibleSets[ex.name] = next;
+    // Save immediately so the set persists if the user navigates away without blurring
+    const inp       = inputs[newKey];
+    const type      = exTypes[ex.name] ?? 'weighted';
+    const reps      = parseInt(inp.reps) || null;
+    const weight_kg = type === 'weighted' && inp.weight ? (parseFloat(inp.weight) || null) : null;
+    if (reps !== null || weight_kg !== null) {
+      await saveSet({ date, exercise_name: ex.name, set_number: next, reps, weight_kg });
+    }
   }
 
   async function handleBlur(exerciseName: string, setNumber: number) {
@@ -153,6 +179,14 @@
     </div>
     {#if workout}
       <button
+        class="btn btn-ghost btn-sm btn-circle text-base-content/40 hover:text-base-content"
+        onclick={() => { templateName = workout?.title ?? ''; saveTemplateEl?.showModal(); }}
+        aria-label="Save as template"
+        title="Save as template"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24"><path fill="currentColor" d="M15 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7zm0 2l2 2h-2zM7 5h6v4h4v10H7z"/></svg>
+      </button>
+      <button
         class="btn btn-circle btn-sm bg-success border-success text-success-content hover:bg-success/80"
         onclick={async () => { await finishWorkout(date); goto('/'); }}
         aria-label="Finish workout"
@@ -183,45 +217,26 @@
           <!-- Exercise header -->
           <div class="flex items-center justify-between mb-4">
             <div>
-              <h3 class="font-semibold capitalize">{ex.name}</h3>
+              <h3 class="font-semibold capitalize flex items-center gap-1.5">
+                {ex.name}
+                <a href="/exercises?name={encodeURIComponent(ex.name)}" class="text-base-content/50 hover:text-base-content/80 transition-colors" title="Edit exercise">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24"><path fill="currentColor" d="M20.952 3.048a3.58 3.58 0 0 0-5.06 0L3.94 15a3.1 3.1 0 0 0-.825 1.476L2.02 21.078a.75.75 0 0 0 .904.903l4.601-1.096a3.1 3.1 0 0 0 1.477-.825l11.95-11.95a3.58 3.58 0 0 0 0-5.06m-4 1.06a2.078 2.078 0 1 1 2.94 2.94L19 7.939L16.06 5zM15 6.062L17.94 9l-10 10c-.21.21-.474.357-.763.426l-3.416.814l.813-3.416c.069-.29.217-.554.427-.764z"/></svg>
+                </a>
+              </h3>
               <p class="text-xs text-base-content/30 mt-0.5 flex items-center gap-1">
                 {ex.sets} sets
                 {#if exTypes[ex.name] === 'weighted' && wMinH != null}
                   · <svg xmlns="http://www.w3.org/2000/svg" class="inline h-3 w-3" viewBox="0 0 24 24"><path fill="currentColor" d="M12 21q-3.15 0-5.575-1.912T3.275 14.2q-.1-.375.15-.687t.675-.363q.4-.05.725.15t.45.6q.6 2.25 2.475 3.675T12 19q2.925 0 4.963-2.037T19 12t-2.037-4.962T12 5q-1.725 0-3.225.8T6.25 8H8q.425 0 .713.288T9 9t-.288.713T8 10H4q-.425 0-.712-.288T3 9V5q0-.425.288-.712T4 4t.713.288T5 5v1.35q1.275-1.6 3.113-2.475T12 3q1.875 0 3.513.713t2.85 1.924t1.925 2.85T21 12t-.712 3.513t-1.925 2.85t-2.85 1.925T12 21m1-9.4l2.5 2.5q.275.275.275.7t-.275.7t-.7.275t-.7-.275l-2.8-2.8q-.15-.15-.225-.337T11 11.975V8q0-.425.288-.712T12 7t.713.288T13 8z"/></svg>
                   {wMinH === wMaxH ? `${wMinH}kg` : `${wMinH}–${wMaxH}kg`}
+                  {#if ex.lastDate}· {new Date(ex.lastDate + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}{/if}
                 {:else if exTypes[ex.name] !== 'weighted' && rMinH != null}
                   · <svg xmlns="http://www.w3.org/2000/svg" class="inline h-3 w-3" viewBox="0 0 24 24"><path fill="currentColor" d="M12 21q-3.15 0-5.575-1.912T3.275 14.2q-.1-.375.15-.687t.675-.363q.4-.05.725.15t.45.6q.6 2.25 2.475 3.675T12 19q2.925 0 4.963-2.037T19 12t-2.037-4.962T12 5q-1.725 0-3.225.8T6.25 8H8q.425 0 .713.288T9 9t-.288.713T8 10H4q-.425 0-.712-.288T3 9V5q0-.425.288-.712T4 4t.713.288T5 5v1.35q1.275-1.6 3.113-2.475T12 3q1.875 0 3.513.713t2.85 1.924t1.925 2.85T21 12t-.712 3.513t-1.925 2.85t-2.85 1.925T12 21m1-9.4l2.5 2.5q.275.275.275.7t-.275.7t-.7.275t-.7-.275l-2.8-2.8q-.15-.15-.225-.337T11 11.975V8q0-.425.288-.712T12 7t.713.288T13 8z"/></svg>
                   {exTypes[ex.name] === 'timed' ? (rMinH === rMaxH ? `${rMinH}s` : `${rMinH}–${rMaxH}s`) : (rMinH === rMaxH ? rMinH : `${rMinH}–${rMaxH}`)}
+                  {#if ex.lastDate}· {new Date(ex.lastDate + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}{/if}
                 {/if}
               </p>
             </div>
             <div class="flex items-center gap-2">
-              <div class="flex rounded-lg overflow-hidden border border-base-300">
-                <button
-                  class="px-2.5 py-1.5 transition-colors {type === 'weighted' ? 'bg-base-content text-base-100' : 'text-base-content/40 hover:text-base-content/70'}"
-                  onclick={() => { exTypes[ex.name] = 'weighted'; setExerciseUnit({ name: ex.name, unit: 'weighted' }); }}
-                  aria-label="Weighted"
-                  title="Weighted"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24"><path fill="currentColor" d="M12 7q.425 0 .713-.288T13 6t-.288-.712T12 5t-.712.288T11 6t.288.713T12 7m2.825 0h1.75q.75 0 1.3.5t.675 1.225l1.425 10q.125.9-.462 1.588T18 21H6q-.925 0-1.513-.687t-.462-1.588l1.425-10Q5.575 8 6.125 7.5t1.3-.5h1.75q-.075-.25-.125-.487T9 6q0-1.25.875-2.125T12 3t2.125.875T15 6q0 .275-.05.513T14.825 7"/></svg>
-                </button>
-                <button
-                  class="px-2.5 py-1.5 border-x border-base-300 transition-colors {type === 'reps' ? 'bg-base-content text-base-100' : 'text-base-content/40 hover:text-base-content/70'}"
-                  onclick={() => { exTypes[ex.name] = 'reps'; setExerciseUnit({ name: ex.name, unit: 'reps' }); }}
-                  aria-label="Reps"
-                  title="Reps"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24"><path fill="currentColor" d="M14.55 4q-.05.243-.05.5v3a2.5 2.5 0 0 0 5 0v-3q0-.24-.045-.467A3 3 0 0 1 22 7v10a3 3 0 0 1-2.846 2.996L19 20h-.5v-6.25a.75.75 0 0 0-1.355-.441l-.012.015l-.008.011l-.042.053a1.96 1.96 0 0 1-1.015.635a.75.75 0 0 0 .364 1.454q.309-.078.568-.199V20h-4.25V4zM7 9.5a1 1 0 0 1 1 1v3a1 1 0 1 1-2 0v-3a1 1 0 0 1 1-1M11.25 4v16H5l-.154-.004A3 3 0 0 1 2 17V7a3 3 0 0 1 3-3zM7 8a2.5 2.5 0 0 0-2.5 2.5v3a2.5 2.5 0 0 0 5 0v-3A2.5 2.5 0 0 0 7 8m10.865-4a1 1 0 0 1 .135.5v3a1 1 0 1 1-2 0v-3c0-.182.05-.353.135-.5z"/></svg>
-                </button>
-                <button
-                  class="px-2.5 py-1.5 transition-colors {type === 'timed' ? 'bg-base-content text-base-100' : 'text-base-content/40 hover:text-base-content/70'}"
-                  onclick={() => { exTypes[ex.name] = 'timed'; setExerciseUnit({ name: ex.name, unit: 'timed' }); }}
-                  aria-label="Timed"
-                  title="Timed"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24"><path fill="currentColor" d="M10 3q-.425 0-.712-.288T9 2t.288-.712T10 1h4q.425 0 .713.288T15 2t-.288.713T14 3zm2.713 10.713Q13 13.425 13 13V9q0-.425-.288-.712T12 8t-.712.288T11 9v4q0 .425.288.713T12 14t.713-.288m-4.2 7.576q-1.638-.713-2.863-1.938t-1.937-2.863T3 13t.713-3.488T5.65 6.65t2.863-1.937T12 4q1.55 0 2.975.5t2.675 1.45l.7-.7q.275-.275.7-.275t.7.275t.275.7t-.275.7l-.7.7Q20 8.6 20.5 10.025T21 13q0 1.85-.713 3.488T18.35 19.35t-2.863 1.938T12 22t-3.488-.712"/></svg>
-                </button>
-              </div>
               <button
                 class="text-base-content/25 hover:text-error transition-colors text-base leading-none"
                 onclick={() => handleRemove(ex.name)}
@@ -340,6 +355,27 @@
         onclick={handleAddExercise}
       >
         {addingEx ? 'Adding…' : 'Add'}
+      </button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<!-- Save template dialog -->
+<dialog bind:this={saveTemplateEl} class="modal modal-bottom sm:modal-middle">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg mb-4">Save as template</h3>
+    <input
+      type="text"
+      class="input input-bordered w-full"
+      placeholder="Template name…"
+      bind:value={templateName}
+      onkeydown={(e) => { if (e.key === 'Enter') handleSaveTemplate(); }}
+    />
+    <div class="modal-action">
+      <button class="btn btn-ghost" onclick={() => saveTemplateEl?.close()}>Cancel</button>
+      <button class="btn btn-primary" disabled={!templateName.trim() || savingTemplate} onclick={handleSaveTemplate}>
+        {savingTemplate ? 'Saving…' : 'Save'}
       </button>
     </div>
   </div>

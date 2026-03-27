@@ -29,6 +29,15 @@
   let dayWorkoutLoading  = $state(false);
   let dayWorkoutPreview  = $state<string | null>(null);
   let dayWorkoutError    = $state<string | null>(null);
+  let clearingWeek       = $state(false);
+
+  async function handleClearWeek(weekMonthData: { plans: { id: number; date: string; type: string }[] }) {
+    clearingWeek = true;
+    const weekDateStrs = buildWeekDays(currentWeekStart).map(toISO);
+    const toDelete = weekMonthData.plans.filter(p => weekDateStrs.includes(p.date) && p.type === 'workout');
+    for (const p of toDelete) await deletePlan({ id: p.id, date: p.date });
+    clearingWeek = false;
+  }
 
   async function handleSync() {
     syncing = true;
@@ -381,7 +390,7 @@
         </div>
 
         <!-- Generate plan -->
-        <div class="mt-4 flex items-center gap-3">
+        <div class="mt-4 flex items-center gap-2">
           <button
             class="btn btn-sm btn-outline flex-1"
             onclick={handleGeneratePlan}
@@ -394,6 +403,16 @@
               Generate week plan
             {/if}
           </button>
+          {#if weekMonthData.plans.some(p => weekDateStrs.includes(p.date) && p.type === 'workout')}
+            <button
+              class="btn btn-sm btn-ghost text-base-content/40 hover:text-error"
+              onclick={() => handleClearWeek(weekMonthData)}
+              disabled={clearingWeek}
+              title="Clear all workouts this week"
+            >
+              {#if clearingWeek}<span class="loading loading-spinner loading-xs"></span>{:else}Clear{/if}
+            </button>
+          {/if}
           {#if planError}
             <span class="text-xs text-error">{planError}</span>
           {/if}
@@ -446,6 +465,26 @@
         {@const weekWorkouts = weekMonthData.plans
           .filter(p => weekDateStrs.includes(p.date) && p.type === 'workout')
           .sort((a, b) => a.date.localeCompare(b.date))}
+        <!-- Weekly summary stats -->
+        {@const workoutsDone    = weekMonthData.plans.filter(p => weekDateStrs.includes(p.date) && p.type === 'workout' && p.status === 'done').length}
+        {@const workoutsPlanned = weekMonthData.plans.filter(p => weekDateStrs.includes(p.date) && p.type === 'workout').length}
+        {#if workoutsPlanned > 0 || actualKm > 0}
+          <div class="mt-4 grid grid-cols-3 gap-2">
+            <div class="bg-base-200 rounded-xl p-3 text-center">
+              <p class="text-xl font-bold">{actualKm.toFixed(1)}</p>
+              <p class="text-xs text-base-content/40 mt-0.5">km run</p>
+            </div>
+            <div class="bg-base-200 rounded-xl p-3 text-center">
+              <p class="text-xl font-bold">{workoutsDone}<span class="text-base-content/30 text-sm font-normal">/{workoutsPlanned}</span></p>
+              <p class="text-xs text-base-content/40 mt-0.5">workouts</p>
+            </div>
+            <div class="bg-base-200 rounded-xl p-3 text-center">
+              <p class="text-xl font-bold">{weekDateStrs.filter(d => weekMonthData.plans.some(p => p.date === d && p.type === 'rest')).length}</p>
+              <p class="text-xs text-base-content/40 mt-0.5">rest days</p>
+            </div>
+          </div>
+        {/if}
+
         {#if weekWorkouts.length > 0}
           <div class="mt-6 space-y-3">
             <div class="flex items-center gap-1.5 text-xs font-semibold text-base-content/50 uppercase tracking-wide">
@@ -677,6 +716,13 @@
                 >
                   {@render activityIcon('run', true, 'h-5 w-5')}
                   <span class="text-sm font-medium">Run</span>
+                </button>
+                <button
+                  class="flex items-center gap-3 w-full px-4 py-3 hover:bg-base-300 transition-colors border-b border-base-300"
+                  onclick={() => goto(`/workout/${selectedDate}`)}
+                >
+                  {@render activityIcon('workout', true, 'h-5 w-5')}
+                  <span class="text-sm font-medium">Workout</span>
                 </button>
                 <button
                   class="flex items-center gap-3 w-full px-4 py-3 hover:bg-base-300 transition-colors"

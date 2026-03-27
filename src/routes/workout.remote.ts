@@ -2,7 +2,7 @@ import { query, command } from '$app/server';
 import * as v from 'valibot';
 import { db } from '$lib/server/db';
 import { plans, workout_logs, exercise_config } from '$lib/server/db/schema';
-import { and, eq, lt, desc } from 'drizzle-orm';
+import { and, eq, lt, desc, inArray } from 'drizzle-orm';
 import { getMonthData } from './calendar.remote';
 
 const DateExSchema = v.object({
@@ -52,36 +52,44 @@ export const getWorkout = query(DateSchema, async (date) => {
   const configs = await db.select().from(exercise_config);
   const configMap = Object.fromEntries(configs.map(c => [c.name, c.unit as ExerciseUnit]));
 
+  const exerciseNames = exercises.map(ex => ex.name);
+
+  // 2 queries total instead of N+1
+  const [allCurrentLogs, allHistoricalLogs] = await Promise.all([
+    db.select({
+      exercise_name: workout_logs.exercise_name,
+      set_number:    workout_logs.set_number,
+      reps:          workout_logs.reps,
+      weight_kg:     workout_logs.weight_kg,
+    }).from(workout_logs)
+      .where(and(eq(workout_logs.date, date), inArray(workout_logs.exercise_name, exerciseNames)))
+      .orderBy(workout_logs.set_number),
+
+    db.select({
+      exercise_name: workout_logs.exercise_name,
+      date:          workout_logs.date,
+      set_number:    workout_logs.set_number,
+      reps:          workout_logs.reps,
+      weight_kg:     workout_logs.weight_kg,
+    }).from(workout_logs)
+      .where(and(lt(workout_logs.date, date), inArray(workout_logs.exercise_name, exerciseNames)))
+      .orderBy(desc(workout_logs.date)),
+  ]);
+
+  // Pick the most recent date per exercise, then filter previous logs to only that date
+  const lastDateMap: Record<string, string> = {};
+  for (const row of allHistoricalLogs) {
+    if (!lastDateMap[row.exercise_name]) lastDateMap[row.exercise_name] = row.date;
+  }
+  const allPreviousLogs = allHistoricalLogs.filter(r => r.date === lastDateMap[r.exercise_name]);
+
   const result = [];
   for (const ex of exercises) {
-    // saved config wins; fall back to what the notes imply
     const unit: ExerciseUnit = configMap[ex.name] ?? ex.parsedUnit;
-
-    const currentLogs = await db.select({
-      set_number: workout_logs.set_number,
-      reps:       workout_logs.reps,
-      weight_kg:  workout_logs.weight_kg,
-    }).from(workout_logs)
-      .where(and(eq(workout_logs.date, date), eq(workout_logs.exercise_name, ex.name)))
-      .orderBy(workout_logs.set_number);
-
-    const [lastEntry] = await db.select({ date: workout_logs.date })
-      .from(workout_logs)
-      .where(and(eq(workout_logs.exercise_name, ex.name), lt(workout_logs.date, date)))
-      .orderBy(desc(workout_logs.date))
-      .limit(1);
-
-    const previousLogs = lastEntry
-      ? await db.select({
-          set_number: workout_logs.set_number,
-          reps:       workout_logs.reps,
-          weight_kg:  workout_logs.weight_kg,
-        }).from(workout_logs)
-          .where(and(eq(workout_logs.exercise_name, ex.name), eq(workout_logs.date, lastEntry.date)))
-          .orderBy(workout_logs.set_number)
-      : [];
-
-    result.push({ name: ex.name, sets: ex.sets, reps: ex.reps, unit, currentLogs, previousLogs });
+    const currentLogs  = allCurrentLogs.filter(l => l.exercise_name === ex.name);
+    const previousLogs = allPreviousLogs.filter(l => l.exercise_name === ex.name);
+    const lastDate     = lastDateMap[ex.name] ?? null;
+    result.push({ name: ex.name, sets: ex.sets, reps: ex.reps, unit, currentLogs, previousLogs, lastDate });
   }
 
   return { planId: plan.id, title, exercises: result };

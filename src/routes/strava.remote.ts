@@ -1,6 +1,7 @@
 import { query, command } from '$app/server';
 import { db } from '$lib/server/db';
 import { strava_tokens, strava_webhook, sessions, plans } from '$lib/server/db/schema';
+import { sql } from 'drizzle-orm';
 import { eq, and } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import { getValidToken } from '$lib/server/strava';
@@ -12,8 +13,9 @@ export const getStravaStatus = query(async () => {
     db.select().from(strava_webhook).limit(1),
   ]);
   return {
-    connected:  !!token,
-    webhookId:  webhook?.subscription_id ?? null,
+    connected:   !!token,
+    webhookId:   webhook?.subscription_id ?? null,
+    lastSyncAt:  token?.last_sync_at ?? null,
   };
 });
 
@@ -80,6 +82,8 @@ export const syncStrava = command(async () => {
     affectedDates.add(date);
     affectedMonths.add(date.slice(0, 7));
   }
+
+  await db.update(strava_tokens).set({ last_sync_at: new Date().toISOString() });
 
   await Promise.all([
     ...Array.from(affectedMonths).map((m) => getMonthData(m).refresh()),

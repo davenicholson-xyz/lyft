@@ -1,6 +1,9 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { onMount } from 'svelte';
+  import { page } from '$app/stores';
   import { getExercises, renameExercise } from '../exercises.remote';
+  import { setExerciseUnit } from '../workout.remote';
 
   let dialogEl  = $state<HTMLDialogElement | null>(null);
   let selected  = $state<string | null>(null);
@@ -10,8 +13,19 @@
   let mergeSearch = $state('');
   let saving    = $state(false);
 
-  let allExercises     = $state<{ name: string; logs: number }[]>([]);
+  type ExType = 'weighted' | 'reps' | 'timed';
+  let allExercises     = $state<{ name: string; logs: number; unit: ExType }[]>([]);
+  let selectedUnit     = $state<ExType>('weighted');
   let exercisesPromise = $state(getExercises());
+
+  // Auto-open dialog if ?name= param is present
+  onMount(async () => {
+    const autoName = $page.url.searchParams.get('name');
+    if (!autoName) return;
+    const exercises = await exercisesPromise;
+    const match = exercises.find(e => e.name === autoName);
+    if (match) openDialog(match.name, exercises);
+  });
 
   let mergeFiltered = $derived(
     allExercises
@@ -19,14 +33,22 @@
       .filter(e => mergeSearch.trim() === '' || e.name.toLowerCase().includes(mergeSearch.toLowerCase()))
   );
 
-  function openDialog(name: string, exercises: { name: string; logs: number }[]) {
-    selected    = name;
-    renameTo    = name;
-    mergeTarget = '';
-    mergeSearch = '';
-    tab         = 'rename';
+  function openDialog(name: string, exercises: { name: string; logs: number; unit: ExType }[]) {
+    selected     = name;
+    renameTo     = name;
+    mergeTarget  = '';
+    mergeSearch  = '';
+    tab          = 'rename';
     allExercises = exercises;
+    selectedUnit = exercises.find(e => e.name === name)?.unit ?? 'weighted';
     dialogEl?.showModal();
+  }
+
+  async function handleUnitChange(unit: ExType) {
+    if (!selected) return;
+    selectedUnit = unit;
+    await setExerciseUnit({ name: selected, unit });
+    exercisesPromise = getExercises();
   }
 
   async function handleRename() {
@@ -71,6 +93,9 @@
         {#each exercises as ex, i (ex.name)}
           <div class="flex items-center gap-3 px-4 py-3 {i < exercises.length - 1 ? 'border-b border-base-300' : ''}">
             <span class="flex-1 text-sm capitalize">{ex.name}</span>
+            {#if ex.unit !== 'weighted'}
+              <span class="text-xs text-base-content/30">{ex.unit}</span>
+            {/if}
             {#if ex.logs > 0}
               <span class="text-xs text-base-content/30 tabular-nums">{ex.logs} sets</span>
             {/if}
@@ -89,6 +114,25 @@
 <dialog bind:this={dialogEl} class="modal modal-bottom sm:modal-middle">
   <div class="modal-box">
     <h3 class="font-bold text-base mb-4 capitalize">{selected}</h3>
+
+    <!-- Unit type -->
+    <div class="mb-4">
+      <p class="text-xs text-base-content/50 mb-2">Tracking type</p>
+      <div class="flex rounded-lg overflow-hidden border border-base-300 w-fit text-xs">
+        <button
+          class="px-3 py-1.5 transition-colors {selectedUnit === 'weighted' ? 'bg-base-content text-base-100' : 'text-base-content/50 hover:text-base-content/80'}"
+          onclick={() => handleUnitChange('weighted')}
+        >Weighted</button>
+        <button
+          class="px-3 py-1.5 border-x border-base-300 transition-colors {selectedUnit === 'reps' ? 'bg-base-content text-base-100' : 'text-base-content/50 hover:text-base-content/80'}"
+          onclick={() => handleUnitChange('reps')}
+        >Reps only</button>
+        <button
+          class="px-3 py-1.5 transition-colors {selectedUnit === 'timed' ? 'bg-base-content text-base-100' : 'text-base-content/50 hover:text-base-content/80'}"
+          onclick={() => handleUnitChange('timed')}
+        >Timed</button>
+      </div>
+    </div>
 
     <!-- Tabs -->
     <div class="flex rounded-lg overflow-hidden border border-base-300 text-xs mb-4 w-fit">

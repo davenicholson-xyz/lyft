@@ -21,7 +21,7 @@ function parseExerciseNamesFromNotes(notes: string | null): string[] {
 
 export const getExercises = query(async () => {
   const [configs, logs, workoutPlans] = await Promise.all([
-    db.select({ name: exercise_config.name }).from(exercise_config),
+    db.select({ name: exercise_config.name, unit: exercise_config.unit }).from(exercise_config),
     db.select({ name: workout_logs.exercise_name }).from(workout_logs),
     db.select({ notes: plans.notes }).from(plans).where(eq(plans.type, 'workout')),
   ]);
@@ -34,8 +34,9 @@ export const getExercises = query(async () => {
     .from(workout_logs)
     .groupBy(workout_logs.exercise_name);
   const countMap = Object.fromEntries(counts.map(c => [c.name, c.count]));
+  const unitMap  = Object.fromEntries(configs.map(c => [c.name, c.unit as 'weighted' | 'reps' | 'timed']));
 
-  return allNames.map(name => ({ name, logs: countMap[name] ?? 0 }));
+  return allNames.map(name => ({ name, logs: countMap[name] ?? 0, unit: unitMap[name] ?? 'weighted' as 'weighted' | 'reps' | 'timed' }));
 });
 
 export const renameExercise = command(RenameSchema, async ({ from, to }) => {
