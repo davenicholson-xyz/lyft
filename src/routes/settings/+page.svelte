@@ -56,7 +56,7 @@
   }
 
   async function handleRestrictionsBlur(e: Event) {
-    const val = (e.target as HTMLInputElement).value.trim();
+    const val = (e.target as HTMLTextAreaElement).value.trim();
     await setUserSetting({ key: 'restrictions', value: val });
   }
 
@@ -122,14 +122,13 @@
           </select>
         </div>
         <div class="px-4 py-3">
-          <span class="text-sm block mb-1.5">Movement restrictions</span>
-          <input
-            type="text"
-            class="input input-sm input-bordered w-full"
-            placeholder="e.g. no overhead press, knee injury…"
-            value={settings.restrictions ?? ''}
+          <span class="text-sm block mb-1.5">Training notes</span>
+          <textarea
+            class="textarea textarea-bordered w-full text-sm"
+            rows="3"
+            placeholder="e.g. focus on upper body, no overhead press, knee injury…"
             onblur={handleRestrictionsBlur}
-          />
+          >{settings.restrictions ?? ''}</textarea>
         </div>
         <a href="/recovery" class="flex items-center justify-between px-4 py-3 hover:bg-base-300 transition-colors">
           <span class="text-sm">Recovery log</span>

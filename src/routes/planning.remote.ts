@@ -125,7 +125,7 @@ ${gearStr}
 
 Known exercise names (use these exact names when applicable — do not invent variations):
 ${knownExercises.length ? knownExercises.map(n => `- ${n}`).join('\n') : 'None yet'}
-${settingsMap.phase ? `\nCurrent training phase: ${settingsMap.phase}` : ''}${settingsMap.restrictions ? `\nMovement restrictions / injuries: ${settingsMap.restrictions}` : ''}
+${settingsMap.phase ? `\nCurrent training phase: ${settingsMap.phase}` : ''}${settingsMap.restrictions ? `\nTraining notes / restrictions: ${settingsMap.restrictions}` : ''}
 ${userNotes.length ? `\nTraining requirements (must follow):\n${userNotes.map(n => `- ${n.note}`).join('\n')}` : ''}${prevWeekStr}
 ${notes ? `\nAdditional notes for this week: ${notes}` : ''}
 
