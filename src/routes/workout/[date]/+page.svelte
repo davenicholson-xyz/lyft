@@ -88,9 +88,7 @@
     const next    = current + 1;
     const prevKey = `${ex.name}__${current}`;
     const newKey  = `${ex.name}__${next}`;
-    if (!inputs[newKey]) {
-      inputs[newKey] = inputs[prevKey] ? { ...inputs[prevKey] } : { reps: ex.reps.toString(), weight: '' };
-    }
+    inputs[newKey] = inputs[prevKey] ? { ...inputs[prevKey] } : { reps: ex.reps.toString(), weight: '' };
     visibleSets[ex.name] = next;
     // Save immediately so the set persists if the user navigates away without blurring
     const inp       = inputs[newKey];
