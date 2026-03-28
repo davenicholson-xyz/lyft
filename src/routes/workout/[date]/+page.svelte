@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { getWorkout, saveSet, getExerciseNames, addExerciseToPlan, removeExerciseFromPlan, finishWorkout } from '../../workout.remote';
+  import { getWorkout, saveSet, deleteSet, getExerciseNames, addExerciseToPlan, removeExerciseFromPlan, finishWorkout } from '../../workout.remote';
   import { saveTemplate } from '../../templates.remote';
 
   let { data } = $props();
@@ -38,8 +38,17 @@
   let timerActive   = $state(false);
   let timerSeconds  = $state(REST_DEFAULT);
   let timerTotal    = $state(REST_DEFAULT);
+  let timerStart    = $state(0);
   let timerExName   = $state('');
   let timerInterval = $state<ReturnType<typeof setInterval> | null>(null);
+
+  // Active exercise modal
+  let activeEx         = $state<Workout['exercises'][number] | null>(null);
+  let activeExDialogEl = $state<HTMLDialogElement | null>(null);
+
+  // Confirm remove set
+  let pendingRemoveSet    = $state<{ exerciseName: string; setNumber: number } | null>(null);
+  let confirmRemoveSetEl  = $state<HTMLDialogElement | null>(null);
 
   async function handleSaveTemplate() {
     if (!workout?.exercises.length || !templateName.trim()) return;
@@ -174,13 +183,14 @@
   function startTimer(exerciseName: string) {
     if (timerInterval !== null) clearInterval(timerInterval);
     timerExName  = exerciseName;
-    timerSeconds = REST_DEFAULT;
     timerTotal   = REST_DEFAULT;
+    timerStart   = Date.now();
+    timerSeconds = REST_DEFAULT;
     timerActive  = true;
     timerInterval = setInterval(() => {
-      timerSeconds -= 1;
+      const elapsed = Math.floor((Date.now() - timerStart) / 1000);
+      timerSeconds = Math.max(0, timerTotal - elapsed);
       if (timerSeconds <= 0) {
-        timerSeconds = 0;
         clearInterval(timerInterval!);
         timerInterval = null;
         if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
@@ -194,6 +204,21 @@
     timerActive = false;
   }
 
+  async function confirmRemoveSet() {
+    if (!pendingRemoveSet) return;
+    await deleteSet({ date, exercise_name: pendingRemoveSet.exerciseName, set_number: pendingRemoveSet.setNumber });
+    const name = pendingRemoveSet.exerciseName;
+    const current = visibleSets[name] ?? 1;
+    if (current > 1) visibleSets[name] = current - 1;
+    confirmRemoveSetEl?.close();
+    pendingRemoveSet = null;
+  }
+
+  function openExerciseModal(ex: Workout['exercises'][number]) {
+    activeEx = ex;
+    activeExDialogEl?.showModal();
+  }
+
   $effect(() => {
     return () => { if (timerInterval !== null) clearInterval(timerInterval); };
   });
@@ -203,7 +228,7 @@
   }
 </script>
 
-<div class="max-w-lg mx-auto {timerActive ? 'pb-48' : 'pb-24'}">
+<div class="max-w-lg mx-auto {timerActive && activeEx === null ? 'pb-48' : 'pb-24'}">
   <!-- Header -->
   <div class="flex items-center gap-3 px-4 py-4 border-b border-base-200">
     <button class="btn btn-ghost btn-sm btn-circle" onclick={() => goto('/')}>
@@ -246,101 +271,40 @@
       {#each workout.exercises as ex}
         {@const type  = exTypes[ex.name] ?? 'weighted'}
         {@const nSets = visibleSets[ex.name] ?? 1}
-        {@const prevWeightsH = ex.previousLogs.map(l => l.weight_kg).filter((v): v is number => v != null)}
         {@const prevRepsH    = ex.previousLogs.map(l => l.reps).filter((v): v is number => v != null)}
-        {@const wMinH = prevWeightsH.length ? Math.min(...prevWeightsH) : null}
-        {@const wMaxH = prevWeightsH.length ? Math.max(...prevWeightsH) : null}
-        {@const rMinH = prevRepsH.length    ? Math.min(...prevRepsH)    : null}
-        {@const rMaxH = prevRepsH.length    ? Math.max(...prevRepsH)    : null}
-        <div>
-
-          <!-- Exercise header -->
-          <div class="flex items-center justify-between mb-4">
-            <div>
-              <h3 class="font-semibold capitalize flex items-center gap-1.5">
-                {ex.name}
-                <a href="/exercises?name={encodeURIComponent(ex.name)}" class="text-base-content/50 hover:text-base-content/80 transition-colors" title="Edit exercise">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24"><path fill="currentColor" d="M20.952 3.048a3.58 3.58 0 0 0-5.06 0L3.94 15a3.1 3.1 0 0 0-.825 1.476L2.02 21.078a.75.75 0 0 0 .904.903l4.601-1.096a3.1 3.1 0 0 0 1.477-.825l11.95-11.95a3.58 3.58 0 0 0 0-5.06m-4 1.06a2.078 2.078 0 1 1 2.94 2.94L19 7.939L16.06 5zM15 6.062L17.94 9l-10 10c-.21.21-.474.357-.763.426l-3.416.814l.813-3.416c.069-.29.217-.554.427-.764z"/></svg>
-                </a>
-              </h3>
-              <p class="text-xs text-base-content/30 mt-0.5 flex items-center gap-1">
-                {ex.sets} sets
-                {#if exTypes[ex.name] === 'weighted' && wMinH != null}
-                  · <svg xmlns="http://www.w3.org/2000/svg" class="inline h-3 w-3" viewBox="0 0 24 24"><path fill="currentColor" d="M12 21q-3.15 0-5.575-1.912T3.275 14.2q-.1-.375.15-.687t.675-.363q.4-.05.725.15t.45.6q.6 2.25 2.475 3.675T12 19q2.925 0 4.963-2.037T19 12t-2.037-4.962T12 5q-1.725 0-3.225.8T6.25 8H8q.425 0 .713.288T9 9t-.288.713T8 10H4q-.425 0-.712-.288T3 9V5q0-.425.288-.712T4 4t.713.288T5 5v1.35q1.275-1.6 3.113-2.475T12 3q1.875 0 3.513.713t2.85 1.924t1.925 2.85T21 12t-.712 3.513t-1.925 2.85t-2.85 1.925T12 21m1-9.4l2.5 2.5q.275.275.275.7t-.275.7t-.7.275t-.7-.275l-2.8-2.8q-.15-.15-.225-.337T11 11.975V8q0-.425.288-.712T12 7t.713.288T13 8z"/></svg>
-                  {wMinH === wMaxH ? `${wMinH}kg` : `${wMinH}–${wMaxH}kg`}
-                  {#if ex.lastDate}· {new Date(ex.lastDate + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}{/if}
-                {:else if exTypes[ex.name] !== 'weighted' && rMinH != null}
-                  · <svg xmlns="http://www.w3.org/2000/svg" class="inline h-3 w-3" viewBox="0 0 24 24"><path fill="currentColor" d="M12 21q-3.15 0-5.575-1.912T3.275 14.2q-.1-.375.15-.687t.675-.363q.4-.05.725.15t.45.6q.6 2.25 2.475 3.675T12 19q2.925 0 4.963-2.037T19 12t-2.037-4.962T12 5q-1.725 0-3.225.8T6.25 8H8q.425 0 .713.288T9 9t-.288.713T8 10H4q-.425 0-.712-.288T3 9V5q0-.425.288-.712T4 4t.713.288T5 5v1.35q1.275-1.6 3.113-2.475T12 3q1.875 0 3.513.713t2.85 1.924t1.925 2.85T21 12t-.712 3.513t-1.925 2.85t-2.85 1.925T12 21m1-9.4l2.5 2.5q.275.275.275.7t-.275.7t-.7.275t-.7-.275l-2.8-2.8q-.15-.15-.225-.337T11 11.975V8q0-.425.288-.712T12 7t.713.288T13 8z"/></svg>
-                  {exTypes[ex.name] === 'timed' ? (rMinH === rMaxH ? `${rMinH}s` : `${rMinH}–${rMaxH}s`) : (rMinH === rMaxH ? rMinH : `${rMinH}–${rMaxH}`)}
-                  {#if ex.lastDate}· {new Date(ex.lastDate + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}{/if}
-                {/if}
-              </p>
-            </div>
-            <div class="flex items-center gap-2">
-              <button
-                class="text-base-content/25 hover:text-error transition-colors text-base leading-none"
-                onclick={() => handleRemove(ex.name)}
-                aria-label="Remove {ex.name}"
-              >✕</button>
-            </div>
-          </div>
-
-          <!-- Column headers -->
-          {#if type === 'weighted'}
-            <div class="grid grid-cols-[2rem_1fr_1fr] gap-3 mb-2 px-1">
-              <span></span>
-              <span class="text-xs text-base-content/40 text-center">Reps</span>
-              <span class="text-xs text-base-content/40 text-center">kg</span>
-            </div>
-          {:else}
-            <div class="grid grid-cols-[2rem_1fr] gap-3 mb-2 px-1">
-              <span></span>
-              <span class="text-xs text-base-content/40 text-center">{type === 'timed' ? 'Seconds' : 'Reps'}</span>
-            </div>
-          {/if}
-
-          <!-- Sets -->
-          <div class="space-y-2">
-            {#each { length: nSets } as _, i}
-              {@const setNum = i + 1}
-              {@const key    = `${ex.name}__${setNum}`}
-
-              {#if type === 'weighted'}
-                <div class="grid grid-cols-[2rem_1fr_1fr] gap-3 items-center">
-                  <span class="text-sm text-base-content/30 text-center font-mono">{setNum}</span>
-                  <input
-                    type="number" inputmode="numeric"
-                    class="input input-sm input-bordered w-full text-center bg-base-200 border-base-300 focus:border-primary"
-                    bind:value={inputs[key].reps}
-                    onblur={() => handleBlur(ex.name, setNum)}
-                  />
-                  <input
-                    type="number" inputmode="decimal" step="0.5" placeholder="—"
-                    class="input input-sm input-bordered w-full text-center bg-base-200 border-base-300 focus:border-primary"
-                    bind:value={inputs[key].weight}
-                    onblur={() => handleBlur(ex.name, setNum)}
-                  />
-                </div>
-
-              {:else}
-                <div class="grid grid-cols-[2rem_1fr] gap-3 items-center">
-                  <span class="text-sm text-base-content/30 text-center font-mono">{setNum}</span>
-                  <input
-                    type="number" inputmode="numeric"
-                    class="input input-sm input-bordered w-full text-center bg-base-200 border-base-300 focus:border-primary"
-                    bind:value={inputs[key].reps}
-                    onblur={() => handleBlur(ex.name, setNum)}
-                  />
-                </div>
+        {@const rMaxH     = prevRepsH.length ? Math.max(...prevRepsH) : null}
+        {@const maxKgLogH = ex.previousLogs.filter(l => l.weight_kg != null).sort((a, b) => (b.weight_kg ?? 0) - (a.weight_kg ?? 0))[0] ?? null}
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="font-semibold capitalize flex items-center gap-1.5">
+              {ex.name}
+              <a href="/exercises?name={encodeURIComponent(ex.name)}" class="text-base-content/50 hover:text-base-content/80 transition-colors" title="Edit exercise">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24"><path fill="currentColor" d="M20.952 3.048a3.58 3.58 0 0 0-5.06 0L3.94 15a3.1 3.1 0 0 0-.825 1.476L2.02 21.078a.75.75 0 0 0 .904.903l4.601-1.096a3.1 3.1 0 0 0 1.477-.825l11.95-11.95a3.58 3.58 0 0 0 0-5.06m-4 1.06a2.078 2.078 0 1 1 2.94 2.94L19 7.939L16.06 5zM15 6.062L17.94 9l-10 10c-.21.21-.474.357-.763.426l-3.416.814l.813-3.416c.069-.29.217-.554.427-.764z"/></svg>
+              </a>
+            </h3>
+            <p class="text-xs text-base-content/30 mt-0.5">
+              {ex.sets} sets
+              {#if exTypes[ex.name] === 'weighted' && maxKgLogH}
+                · {maxKgLogH.reps}@{maxKgLogH.weight_kg}kg
+              {:else if exTypes[ex.name] !== 'weighted' && rMaxH != null}
+                · {exTypes[ex.name] === 'timed' ? `${rMaxH}s` : rMaxH}
               {/if}
-            {/each}
+            </p>
+            {#if ex.currentLogs.length > 0}
+              <p class="text-xs text-success/70 mt-0.5">{ex.currentLogs.length} of {ex.sets} done</p>
+            {/if}
           </div>
-
-          <!-- Add set button -->
-          <button
-            class="btn btn-ghost btn-xs mt-2 text-base-content/40 hover:text-base-content"
-            onclick={() => addSet(ex)}
-          >+ Add set</button>
+          <div class="flex items-center gap-3">
+            <button
+              class="text-base-content/25 hover:text-error transition-colors text-base leading-none"
+              onclick={() => handleRemove(ex.name)}
+              aria-label="Remove {ex.name}"
+            >✕</button>
+            <button
+              class="btn btn-sm {ex.currentLogs.length > 0 ? 'btn-outline' : 'btn-primary'}"
+              onclick={() => openExerciseModal(ex)}
+            >{ex.currentLogs.length > 0 ? 'Resume' : 'Start'}</button>
+          </div>
         </div>
       {/each}
 
@@ -353,14 +317,141 @@
   {/if}
 </div>
 
+<!-- Exercise entry modal -->
+<dialog bind:this={activeExDialogEl} class="modal modal-bottom sm:modal-middle" onclose={() => activeEx = null}>
+  {#if activeEx}
+    {@const ex    = activeEx}
+    {@const type  = exTypes[ex.name] ?? 'weighted'}
+    {@const nSets = visibleSets[ex.name] ?? 1}
+    {@const prevRepsM    = ex.previousLogs.map(l => l.reps).filter((v): v is number => v != null)}
+    {@const rMaxM     = prevRepsM.length ? Math.max(...prevRepsM) : null}
+    {@const maxKgLogM = ex.previousLogs.filter(l => l.weight_kg != null).sort((a, b) => (b.weight_kg ?? 0) - (a.weight_kg ?? 0))[0] ?? null}
+    <div class="modal-box">
+      <!-- Header -->
+      <div class="flex items-start justify-between mb-1">
+        <div>
+          <h3 class="font-bold text-lg capitalize leading-tight">{ex.name}</h3>
+          <p class="text-xs text-base-content/30 mt-0.5">
+            {ex.sets} sets
+            {#if type === 'weighted' && maxKgLogM}
+              · {maxKgLogM.reps}@{maxKgLogM.weight_kg}kg
+            {:else if type !== 'weighted' && rMaxM != null}
+              · {type === 'timed' ? `${rMaxM}s` : rMaxM}
+            {/if}
+          </p>
+        </div>
+        <button class="btn btn-ghost btn-sm btn-circle text-base-content/40" onclick={() => activeExDialogEl?.close()} aria-label="Close">✕</button>
+      </div>
+
+      <!-- Column headers -->
+      {#if type === 'weighted'}
+        <div class="grid grid-cols-[2rem_1fr_1fr_1.5rem] gap-3 mb-2 px-1 mt-4">
+          <span></span>
+          <span class="text-xs text-base-content/40 text-center">Reps</span>
+          <span class="text-xs text-base-content/40 text-center">kg</span>
+          <span></span>
+        </div>
+      {:else}
+        <div class="grid grid-cols-[2rem_1fr_1.5rem] gap-3 mb-2 px-1 mt-4">
+          <span></span>
+          <span class="text-xs text-base-content/40 text-center">{type === 'timed' ? 'Seconds' : 'Reps'}</span>
+          <span></span>
+        </div>
+      {/if}
+
+      <!-- Sets -->
+      <div class="space-y-2">
+        {#each { length: nSets } as _, i}
+          {@const setNum = i + 1}
+          {@const key    = `${ex.name}__${setNum}`}
+          {#if type === 'weighted'}
+            <div class="grid grid-cols-[2rem_1fr_1fr_1.5rem] gap-3 items-center">
+              <span class="text-sm text-base-content/30 text-center font-mono">{setNum}</span>
+              <input
+                type="number" inputmode="numeric"
+                class="input input-sm input-bordered w-full text-center bg-base-200 border-base-300 focus:border-primary"
+                bind:value={inputs[key].reps}
+                onblur={() => handleBlur(ex.name, setNum)}
+              />
+              <input
+                type="number" inputmode="decimal" step="0.5" placeholder="—"
+                class="input input-sm input-bordered w-full text-center bg-base-200 border-base-300 focus:border-primary"
+                bind:value={inputs[key].weight}
+                onblur={() => handleBlur(ex.name, setNum)}
+              />
+              <button
+                class="text-base-content/20 hover:text-error transition-colors text-sm leading-none"
+                onclick={() => { pendingRemoveSet = { exerciseName: ex.name, setNumber: setNum }; confirmRemoveSetEl?.showModal(); }}
+                aria-label="Remove set {setNum}"
+              >✕</button>
+            </div>
+          {:else}
+            <div class="grid grid-cols-[2rem_1fr_1.5rem] gap-3 items-center">
+              <span class="text-sm text-base-content/30 text-center font-mono">{setNum}</span>
+              <input
+                type="number" inputmode="numeric"
+                class="input input-sm input-bordered w-full text-center bg-base-200 border-base-300 focus:border-primary"
+                bind:value={inputs[key].reps}
+                onblur={() => handleBlur(ex.name, setNum)}
+              />
+              <button
+                class="text-base-content/20 hover:text-error transition-colors text-sm leading-none"
+                onclick={() => { pendingRemoveSet = { exerciseName: ex.name, setNumber: setNum }; confirmRemoveSetEl?.showModal(); }}
+                aria-label="Remove set {setNum}"
+              >✕</button>
+            </div>
+          {/if}
+        {/each}
+      </div>
+
+      <!-- Add set -->
+      <button
+        class="btn btn-outline btn-sm w-full mt-4"
+        onclick={() => addSet(ex)}
+      >+ Add set</button>
+
+      <!-- Rest timer (inline, shown when active) -->
+      {#if timerActive}
+        <div class="mt-4 pt-4 border-t border-base-300">
+          <div class="h-1 bg-base-300 rounded-full overflow-hidden mb-3">
+            <div
+              class="h-full bg-success transition-all duration-1000 ease-linear"
+              style="width: {(timerSeconds / timerTotal) * 100}%;"
+            ></div>
+          </div>
+          <div class="flex items-center justify-between">
+            <button
+              class="btn btn-ghost btn-sm text-base-content/60 font-mono"
+              onclick={() => { timerStart -= 30000; timerTotal = Math.max(timerTotal - 30, 0); timerSeconds = Math.max(0, timerTotal - Math.floor((Date.now() - timerStart) / 1000)); }}
+            >−30s</button>
+            <span class="text-4xl font-bold font-mono tabular-nums text-success">{formatTime(timerSeconds)}</span>
+            <button
+              class="btn btn-ghost btn-sm text-base-content/60 font-mono"
+              onclick={() => { timerStart += 30000; timerTotal += 30; timerSeconds = timerTotal - Math.floor((Date.now() - timerStart) / 1000); }}
+            >+30s</button>
+          </div>
+          <div class="flex justify-center mt-1">
+            <button class="btn btn-ghost btn-xs text-base-content/30 hover:text-base-content" onclick={dismissTimer}>dismiss timer</button>
+          </div>
+        </div>
+      {/if}
+
+      <div class="modal-action mt-4">
+        <button class="btn btn-primary w-full" onclick={() => activeExDialogEl?.close()}>Finished</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  {/if}
+</dialog>
+
 <!-- Rest timer -->
 <div
   class="fixed left-0 right-0 bottom-16 z-30 bg-base-200 border-t border-base-300 shadow-lg timer-bar"
-  class:timer-bar--visible={timerActive}
+  class:timer-bar--visible={timerActive && activeEx === null}
 >
   <div class="absolute top-0 left-0 right-0 h-0.5 bg-base-300 overflow-hidden">
     <div
-      class="h-full bg-primary transition-all duration-1000 ease-linear"
+      class="h-full bg-success transition-all duration-1000 ease-linear"
       style="width: {timerActive ? (timerSeconds / timerTotal) * 100 : 100}%;"
     ></div>
   </div>
@@ -372,12 +463,12 @@
     <div class="flex items-center justify-between">
       <button
         class="btn btn-ghost btn-sm text-base-content/60 font-mono"
-        onclick={() => { timerSeconds = Math.max(0, timerSeconds - 30); }}
+        onclick={() => { timerStart -= 30000; timerTotal = Math.max(timerTotal - 30, 0); timerSeconds = Math.max(0, timerTotal - Math.floor((Date.now() - timerStart) / 1000)); }}
       >−30s</button>
-      <span class="text-3xl font-bold font-mono tabular-nums">{formatTime(timerSeconds)}</span>
+      <span class="text-3xl font-bold font-mono tabular-nums text-success">{formatTime(timerSeconds)}</span>
       <button
         class="btn btn-ghost btn-sm text-base-content/60 font-mono"
-        onclick={() => { timerSeconds += 30; if (timerSeconds > timerTotal) timerTotal = timerSeconds; }}
+        onclick={() => { timerStart += 30000; timerTotal += 30; timerSeconds = timerTotal - Math.floor((Date.now() - timerStart) / 1000); }}
       >+30s</button>
     </div>
   </div>
@@ -447,6 +538,21 @@
       <button class="btn btn-primary" disabled={!templateName.trim() || savingTemplate} onclick={handleSaveTemplate}>
         {savingTemplate ? 'Saving…' : 'Save'}
       </button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<!-- Confirm remove set dialog -->
+<dialog bind:this={confirmRemoveSetEl} class="modal modal-bottom sm:modal-middle">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg mb-2">Remove set?</h3>
+    <p class="text-base-content/60 text-sm">
+      Set {pendingRemoveSet?.setNumber} of <span class="capitalize">{pendingRemoveSet?.exerciseName}</span> will be deleted.
+    </p>
+    <div class="modal-action">
+      <button class="btn btn-ghost" onclick={() => { confirmRemoveSetEl?.close(); pendingRemoveSet = null; }}>Cancel</button>
+      <button class="btn btn-error" onclick={confirmRemoveSet}>Remove</button>
     </div>
   </div>
   <form method="dialog" class="modal-backdrop"><button>close</button></form>

@@ -2,7 +2,7 @@ import { query, command } from '$app/server';
 import * as v from 'valibot';
 import { db } from '$lib/server/db';
 import { plans, workout_logs, exercise_config } from '$lib/server/db/schema';
-import { and, eq, lt, desc, inArray } from 'drizzle-orm';
+import { and, eq, lt, gt, desc, inArray } from 'drizzle-orm';
 import { getMonthData } from './calendar.remote';
 
 const DateExSchema = v.object({
@@ -108,6 +108,34 @@ export const saveSet = command(SaveSetSchema, async ({ date, exercise_name, set_
     created_at: new Date().toISOString(),
   });
 
+  await getWorkout(date).refresh();
+});
+
+const DeleteSetSchema = v.object({
+  date:          v.pipe(v.string(), v.regex(/^\d{4}-\d{2}-\d{2}$/)),
+  exercise_name: v.pipe(v.string(), v.minLength(1)),
+  set_number:    v.number(),
+});
+
+export const deleteSet = command(DeleteSetSchema, async ({ date, exercise_name, set_number }) => {
+  await db.delete(workout_logs).where(and(
+    eq(workout_logs.date, date),
+    eq(workout_logs.exercise_name, exercise_name),
+    eq(workout_logs.set_number, set_number),
+  ));
+  const higher = await db.select().from(workout_logs).where(and(
+    eq(workout_logs.date, date),
+    eq(workout_logs.exercise_name, exercise_name),
+    gt(workout_logs.set_number, set_number),
+  )).orderBy(workout_logs.set_number);
+  for (const log of higher) {
+    await db.delete(workout_logs).where(and(
+      eq(workout_logs.date, date),
+      eq(workout_logs.exercise_name, exercise_name),
+      eq(workout_logs.set_number, log.set_number),
+    ));
+    await db.insert(workout_logs).values({ ...log, set_number: log.set_number - 1 });
+  }
   await getWorkout(date).refresh();
 });
 
