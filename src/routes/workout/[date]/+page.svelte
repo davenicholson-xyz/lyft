@@ -33,6 +33,14 @@
   let templateName     = $state('');
   let savingTemplate   = $state(false);
 
+  // Rest timer
+  const REST_DEFAULT = 180;
+  let timerActive   = $state(false);
+  let timerSeconds  = $state(REST_DEFAULT);
+  let timerTotal    = $state(REST_DEFAULT);
+  let timerExName   = $state('');
+  let timerInterval = $state<ReturnType<typeof setInterval> | null>(null);
+
   async function handleSaveTemplate() {
     if (!workout?.exercises.length || !templateName.trim()) return;
     savingTemplate = true;
@@ -98,6 +106,7 @@
     if (reps !== null || weight_kg !== null) {
       await saveSet({ date, exercise_name: ex.name, set_number: next, reps, weight_kg });
     }
+    startTimer(ex.name);
   }
 
   async function handleBlur(exerciseName: string, setNumber: number) {
@@ -156,12 +165,45 @@
     refreshKey++;
   }
 
+  function formatTime(s: number): string {
+    const m = Math.floor(Math.max(0, s) / 60);
+    const sec = Math.max(0, s) % 60;
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  }
+
+  function startTimer(exerciseName: string) {
+    if (timerInterval !== null) clearInterval(timerInterval);
+    timerExName  = exerciseName;
+    timerSeconds = REST_DEFAULT;
+    timerTotal   = REST_DEFAULT;
+    timerActive  = true;
+    timerInterval = setInterval(() => {
+      timerSeconds -= 1;
+      if (timerSeconds <= 0) {
+        timerSeconds = 0;
+        clearInterval(timerInterval!);
+        timerInterval = null;
+        if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
+        setTimeout(() => { timerActive = false; }, 1500);
+      }
+    }, 1000);
+  }
+
+  function dismissTimer() {
+    if (timerInterval !== null) { clearInterval(timerInterval); timerInterval = null; }
+    timerActive = false;
+  }
+
+  $effect(() => {
+    return () => { if (timerInterval !== null) clearInterval(timerInterval); };
+  });
+
   function dayLabel(d: string) {
     return new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
   }
 </script>
 
-<div class="max-w-lg mx-auto pb-24">
+<div class="max-w-lg mx-auto {timerActive ? 'pb-48' : 'pb-24'}">
   <!-- Header -->
   <div class="flex items-center gap-3 px-4 py-4 border-b border-base-200">
     <button class="btn btn-ghost btn-sm btn-circle" onclick={() => goto('/')}>
@@ -311,6 +353,36 @@
   {/if}
 </div>
 
+<!-- Rest timer -->
+<div
+  class="fixed left-0 right-0 bottom-16 z-30 bg-base-200 border-t border-base-300 shadow-lg timer-bar"
+  class:timer-bar--visible={timerActive}
+>
+  <div class="absolute top-0 left-0 right-0 h-0.5 bg-base-300 overflow-hidden">
+    <div
+      class="h-full bg-primary transition-all duration-1000 ease-linear"
+      style="width: {timerActive ? (timerSeconds / timerTotal) * 100 : 100}%;"
+    ></div>
+  </div>
+  <div class="max-w-lg mx-auto px-4 py-3">
+    <div class="flex items-center justify-between mb-1">
+      <span class="text-xs text-base-content/40 capitalize truncate max-w-[75%]">rest · {timerExName}</span>
+      <button class="btn btn-ghost btn-xs btn-circle text-base-content/40 hover:text-base-content" onclick={dismissTimer} aria-label="Dismiss">✕</button>
+    </div>
+    <div class="flex items-center justify-between">
+      <button
+        class="btn btn-ghost btn-sm text-base-content/60 font-mono"
+        onclick={() => { timerSeconds = Math.max(0, timerSeconds - 30); }}
+      >−30s</button>
+      <span class="text-3xl font-bold font-mono tabular-nums">{formatTime(timerSeconds)}</span>
+      <button
+        class="btn btn-ghost btn-sm text-base-content/60 font-mono"
+        onclick={() => { timerSeconds += 30; if (timerSeconds > timerTotal) timerTotal = timerSeconds; }}
+      >+30s</button>
+    </div>
+  </div>
+</div>
+
 <!-- Add exercise dialog -->
 <dialog bind:this={dialogEl} class="modal modal-bottom sm:modal-middle">
   <div class="modal-box">
@@ -392,3 +464,13 @@
   </div>
   <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
+
+<style>
+  .timer-bar {
+    transform: translateY(100%);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .timer-bar--visible {
+    transform: translateY(0);
+  }
+</style>
