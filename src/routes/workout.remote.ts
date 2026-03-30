@@ -172,6 +172,36 @@ export const addExerciseToPlan = command(DateExSchema, async ({ date, name }) =>
   await getExerciseNames().refresh();
 });
 
+export const reorderExercise = command(v.object({
+  date:      v.pipe(v.string(), v.regex(/^\d{4}-\d{2}-\d{2}$/)),
+  name:      v.pipe(v.string(), v.minLength(1)),
+  direction: v.picklist(['up', 'down']),
+}), async ({ date, name, direction }) => {
+  const [plan] = await db.select().from(plans)
+    .where(and(eq(plans.date, date), eq(plans.type, 'workout')))
+    .limit(1);
+  if (!plan?.notes) return;
+
+  const colonIdx = plan.notes.indexOf(':');
+  const title    = colonIdx !== -1 ? plan.notes.slice(0, colonIdx).trim() : null;
+  const exStr    = colonIdx !== -1 ? plan.notes.slice(colonIdx + 1) : plan.notes;
+  const parts    = exStr.split(',').map(s => s.trim()).filter(Boolean);
+
+  const idx = parts.findIndex(part => {
+    const m = part.match(/^(.+?)\s+\d+[×x]\d+/i);
+    return (m ? m[1].trim() : part).toLowerCase() === name.toLowerCase();
+  });
+  if (idx === -1) return;
+
+  const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (swapIdx < 0 || swapIdx >= parts.length) return;
+  [parts[idx], parts[swapIdx]] = [parts[swapIdx], parts[idx]];
+
+  const newNotes = title ? `${title}: ${parts.join(', ')}` : parts.join(', ');
+  await db.update(plans).set({ notes: newNotes }).where(eq(plans.id, plan.id));
+  await getWorkout(date).refresh();
+});
+
 export const removeExerciseFromPlan = command(DateExSchema, async ({ date, name }) => {
   const [plan] = await db.select().from(plans)
     .where(and(eq(plans.date, date), eq(plans.type, 'workout')))

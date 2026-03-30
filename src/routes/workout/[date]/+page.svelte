@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { getWorkout, saveSet, deleteSet, getExerciseNames, addExerciseToPlan, removeExerciseFromPlan, finishWorkout } from '../../workout.remote';
+  import { getWorkout, saveSet, deleteSet, getExerciseNames, addExerciseToPlan, removeExerciseFromPlan, reorderExercise, finishWorkout } from '../../workout.remote';
   import { saveTemplate } from '../../templates.remote';
 
   let { data } = $props();
@@ -161,6 +161,17 @@
     refreshKey++;
   }
 
+  async function moveExercise(name: string, direction: 'up' | 'down') {
+    if (!workout) return;
+    const idx = workout.exercises.findIndex(e => e.name === name);
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= workout.exercises.length) return;
+    const exs = [...workout.exercises];
+    [exs[idx], exs[swapIdx]] = [exs[swapIdx], exs[idx]];
+    workout = { ...workout, exercises: exs };
+    await reorderExercise({ date, name, direction });
+  }
+
   function handleRemove(name: string) {
     pendingRemove = name;
     confirmDialogEl?.showModal();
@@ -268,13 +279,28 @@
     <p class="text-base-content/50 text-sm p-4">No workout found for this date.</p>
   {:else}
     <div class="space-y-8 px-4 pt-5">
-      {#each workout.exercises as ex}
+      {#each workout.exercises as ex, idx}
         {@const type  = exTypes[ex.name] ?? 'weighted'}
         {@const nSets = visibleSets[ex.name] ?? 1}
         {@const prevRepsH    = ex.previousLogs.map(l => l.reps).filter((v): v is number => v != null)}
         {@const rMaxH     = prevRepsH.length ? Math.max(...prevRepsH) : null}
         {@const maxKgLogH = ex.previousLogs.filter(l => l.weight_kg != null).sort((a, b) => (b.weight_kg ?? 0) - (a.weight_kg ?? 0))[0] ?? null}
-        <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="flex flex-col">
+            <button
+              class="btn btn-ghost btn-xs px-0 text-base-content/25 hover:text-base-content disabled:opacity-10"
+              disabled={idx === 0}
+              onclick={() => moveExercise(ex.name, 'up')}
+              aria-label="Move {ex.name} up"
+            ><svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/></svg></button>
+            <button
+              class="btn btn-ghost btn-xs px-0 text-base-content/25 hover:text-base-content disabled:opacity-10"
+              disabled={idx === workout.exercises.length - 1}
+              onclick={() => moveExercise(ex.name, 'down')}
+              aria-label="Move {ex.name} down"
+            ><svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></button>
+          </div>
+          <div class="flex-1 flex items-center justify-between">
           <div>
             <h3 class="font-semibold capitalize flex items-center gap-1.5">
               {ex.name}
@@ -304,6 +330,7 @@
               class="btn btn-sm {ex.currentLogs.length > 0 ? 'btn-outline' : 'btn-primary'}"
               onclick={() => openExerciseModal(ex)}
             >{ex.currentLogs.length > 0 ? 'Resume' : 'Start'}</button>
+          </div>
           </div>
         </div>
       {/each}
