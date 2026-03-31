@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getMonthData, getDayDetail, addPlan, deletePlan } from './calendar.remote';
+  import { getMonthData, getDayDetail, addPlan, deletePlan, swapDays } from './calendar.remote';
   import { goto } from '$app/navigation';
   import { getStravaStatus, syncStrava } from './strava.remote';
   import { generateWeekPlan, acceptWeekPlan, generateDayWorkout, acceptDayWorkout } from './planning.remote';
@@ -30,6 +30,27 @@
   let dayWorkoutPreview  = $state<string | null>(null);
   let dayWorkoutError    = $state<string | null>(null);
   let clearingWeek       = $state(false);
+  let showSwapList       = $state(false);
+
+  function planLabel(type: string, notes: string | null | undefined): string {
+    if (type !== 'workout') return type;
+    if (!notes) return 'Workout';
+    const colonIdx = notes.indexOf(':');
+    if (colonIdx !== -1) return notes.slice(0, colonIdx).trim();
+    const m = notes.split(',')[0].trim().match(/^(.+?)\s+\d+/);
+    return m ? m[1].trim() : 'Workout';
+  }
+
+  function siblingWeekDates(dateStr: string): string[] {
+    const d = new Date(dateStr + 'T12:00:00');
+    const dow = d.getDay();
+    const mondayOffset = dow === 0 ? -6 : 1 - dow;
+    return Array.from({ length: 7 }, (_, i) => {
+      const day = new Date(d);
+      day.setDate(d.getDate() + mondayOffset + i);
+      return toISO(day);
+    }).filter(s => s !== dateStr);
+  }
 
   async function handleClearWeek(weekMonthData: { plans: { id: number; date: string; type: string }[] }) {
     clearingWeek = true;
@@ -168,6 +189,7 @@
     runDistance       = '';
     dayWorkoutPreview = null;
     dayWorkoutError   = null;
+    showSwapList      = false;
   }
 
   async function handleDeletePlan(id: number, date: string) {
@@ -678,8 +700,43 @@
           <span class="font-semibold text-base">
             {new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
           </span>
-          <button class="btn btn-ghost btn-sm btn-circle" onclick={closePanel}>✕</button>
+          <div class="flex items-center gap-1">
+            <button
+              class="btn btn-ghost btn-sm gap-1 {showSwapList ? 'btn-active' : ''}"
+              onclick={() => showSwapList = !showSwapList}
+            >⇄ Switch</button>
+            <button class="btn btn-ghost btn-sm btn-circle" onclick={closePanel}>✕</button>
+          </div>
         </div>
+
+        {#if showSwapList}
+          {@const siblings = siblingWeekDates(selectedDate)}
+          {@const allWeekMonths = [...new Set([selectedDate, ...siblings].map(d => d.slice(0, 7)))]}
+          {#await Promise.all(allWeekMonths.map(m => getMonthData(m)))}
+            <div class="mb-5 animate-pulse h-20 rounded-xl bg-base-200"></div>
+          {:then results}
+            {@const allPlans = results.flatMap(r => r.plans)}
+            <div class="mb-5 border border-base-300 rounded-xl overflow-hidden">
+              {#each siblings as sib}
+                {@const sibPlan = allPlans.find(p => p.date === sib)}
+                <button
+                  class="w-full flex items-center justify-between px-4 py-2.5 text-sm hover:bg-base-200 transition-colors border-b border-base-300 last:border-0"
+                  onclick={async () => {
+                    await swapDays({ dateA: selectedDate!, dateB: sib });
+                    showSwapList = false;
+                  }}
+                >
+                  <span class="text-base-content/50">
+                    {new Date(sib + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' })}
+                  </span>
+                  <span class="capitalize font-medium">
+                    {sibPlan ? planLabel(sibPlan.type, sibPlan.notes) : '—'}
+                  </span>
+                </button>
+              {/each}
+            </div>
+          {/await}
+        {/if}
 
         {#await getDayDetail(selectedDate)}
           <div class="flex justify-center py-6"><span class="loading loading-spinner loading-sm"></span></div>

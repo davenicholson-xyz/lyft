@@ -32,6 +32,30 @@ export const getDayDetail = query(DateSchema, async (date) => {
   return { plans: dayPlans, sessions: daySessions };
 });
 
+export const swapDays = command(v.object({
+  dateA: v.pipe(v.string(), v.regex(/^\d{4}-\d{2}-\d{2}$/)),
+  dateB: v.pipe(v.string(), v.regex(/^\d{4}-\d{2}-\d{2}$/)),
+}), async ({ dateA, dateB }) => {
+  const [plansA, plansB] = await Promise.all([
+    db.select().from(plans).where(eq(plans.date, dateA)),
+    db.select().from(plans).where(eq(plans.date, dateB)),
+  ]);
+  await db.delete(plans).where(eq(plans.date, dateA));
+  await db.delete(plans).where(eq(plans.date, dateB));
+  if (plansA.length) await db.insert(plans).values(
+    plansA.map(p => ({ date: dateB, type: p.type, notes: p.notes, status: p.status }))
+  );
+  if (plansB.length) await db.insert(plans).values(
+    plansB.map(p => ({ date: dateA, type: p.type, notes: p.notes, status: p.status }))
+  );
+  const monthA = dateA.slice(0, 7);
+  const monthB = dateB.slice(0, 7);
+  await getMonthData(monthA).refresh();
+  if (monthB !== monthA) await getMonthData(monthB).refresh();
+  await getDayDetail(dateA).refresh();
+  await getDayDetail(dateB).refresh();
+});
+
 export const addPlan = command(AddPlanSchema, async (input) => {
   // Replace any existing plans for the day so there's only ever one
   await db.delete(plans).where(eq(plans.date, input.date));
