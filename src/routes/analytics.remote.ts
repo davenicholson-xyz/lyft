@@ -1,7 +1,7 @@
 import { query } from '$app/server';
 import { db } from '$lib/server/db';
-import { workout_logs } from '$lib/server/db/schema';
-import { desc } from 'drizzle-orm';
+import { workout_logs, plans } from '$lib/server/db/schema';
+import { eq } from 'drizzle-orm';
 
 export const getStrengthData = query(async () => {
   const logs = await db.select().from(workout_logs).orderBy(workout_logs.date, workout_logs.set_number);
@@ -40,5 +40,17 @@ export const getStrengthData = query(async () => {
     weeklyVolume[wk] = (weeklyVolume[wk] ?? 0) + log.weight_kg * log.reps;
   }
 
-  return { byExercise, weeklyVolume };
+  // Weekly adherence: planned vs done workout plans, last 12 weeks
+  const workoutPlans = await db.select().from(plans).where(eq(plans.type, 'workout'));
+  const weeklyAdherence: Record<string, { planned: number; done: number }> = {};
+  for (const plan of workoutPlans) {
+    const d = new Date(plan.date + 'T12:00:00');
+    d.setDate(d.getDate() - (d.getDay() + 6) % 7);
+    const wk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (!weeklyAdherence[wk]) weeklyAdherence[wk] = { planned: 0, done: 0 };
+    weeklyAdherence[wk].planned++;
+    if (plan.status === 'done') weeklyAdherence[wk].done++;
+  }
+
+  return { byExercise, weeklyVolume, weeklyAdherence };
 });

@@ -1,39 +1,178 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { getStrengthData } from '../analytics.remote';
+  import Chart from 'chart.js/auto';
 
-  let selected = $state<string | null>(null);
+  type StrengthData = Awaited<ReturnType<typeof getStrengthData>>;
 
-  function buildLine(points: { date: string; maxWeight: number | null; maxReps: number | null }[], key: 'maxWeight' | 'maxReps') {
-    const pts = points.filter(p => p[key] != null);
-    if (pts.length < 2) return null;
-    const W = 320, H = 80, PAD = 8;
-    const vals = pts.map(p => p[key] as number);
-    const minV = Math.min(...vals), maxV = Math.max(...vals);
-    const range = maxV - minV || 1;
-    const coords = pts.map((p, i) => {
-      const x = PAD + (i / (pts.length - 1)) * (W - PAD * 2);
-      const y = PAD + (1 - ((p[key] as number) - minV) / range) * (H - PAD * 2);
-      return `${x},${y}`;
+  let data             = $state<StrengthData | null>(null);
+  let selected         = $state<string | null>(null);
+  let volCanvas        = $state<HTMLCanvasElement | null>(null);
+  let lineCanvas       = $state<HTMLCanvasElement | null>(null);
+  let adherenceCanvas  = $state<HTMLCanvasElement | null>(null);
+
+  $effect(() => {
+    void getStrengthData().then(d => { data = d; });
+  });
+
+  function cssColor(v: string) {
+    return getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  }
+
+  function alpha(color: string, a: number) {
+    return color.replace(/\)$/, ` / ${a})`);
+  }
+
+  $effect(() => {
+    if (!volCanvas || !data) return;
+    const primary = cssColor('--color-primary');
+    const content = cssColor('--color-base-content');
+    const grid    = cssColor('--color-base-300');
+
+    const entries = Object.entries(data.weeklyVolume)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-12);
+
+    const chart = new Chart(volCanvas, {
+      type: 'bar',
+      data: {
+        labels: entries.map(([wk]) =>
+          new Date(wk + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+        ),
+        datasets: [{
+          data: entries.map(([, v]) => Math.round(v)),
+          backgroundColor: alpha(primary, 0.4),
+          borderColor: primary,
+          borderWidth: 1,
+          borderRadius: 4,
+          borderSkipped: false,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => `${(ctx.parsed.y as number).toLocaleString()} kg` } },
+        },
+        scales: {
+          x: { grid: { color: alpha(grid, 0.4) }, ticks: { color: alpha(content, 0.5), font: { size: 11 } } },
+          y: { grid: { color: alpha(grid, 0.4) }, ticks: { color: alpha(content, 0.5), font: { size: 11 } }, beginAtZero: true },
+        },
+      },
     });
-    return { coords: coords.join(' '), W, H, minV, maxV, latest: vals.at(-1)! };
-  }
+    return () => chart.destroy();
+  });
 
-  function buildVolume(weeklyVolume: Record<string, number>) {
-    const entries = Object.entries(weeklyVolume).sort(([a], [b]) => a.localeCompare(b)).slice(-12);
-    if (entries.length < 2) return null;
-    const W = 320, H = 60, PAD = 8;
-    const vals = entries.map(([, v]) => v);
-    const maxV = Math.max(...vals);
-    const bars = entries.map(([wk, v], i) => ({
-      x: PAD + (i / entries.length) * (W - PAD * 2),
-      w: ((W - PAD * 2) / entries.length) * 0.7,
-      h: maxV > 0 ? ((v / maxV) * (H - PAD * 2)) : 0,
-      y: H - PAD,
-      wk,
-    }));
-    return { bars, W, H, maxV: Math.round(maxV) };
-  }
+  $effect(() => {
+    if (!adherenceCanvas || !data) return;
+    const primary = cssColor('--color-primary');
+    const error   = cssColor('--color-error');
+    const content = cssColor('--color-base-content');
+    const grid    = cssColor('--color-base-300');
+
+    const entries = Object.entries(data.weeklyAdherence)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-12);
+
+    const chart = new Chart(adherenceCanvas, {
+      type: 'bar',
+      data: {
+        labels: entries.map(([wk]) =>
+          new Date(wk + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+        ),
+        datasets: [
+          {
+            label: 'Done',
+            data: entries.map(([, v]) => v.done),
+            backgroundColor: alpha(primary, 0.8),
+            borderColor: primary,
+            borderWidth: 1,
+            borderRadius: 0,
+            stack: 'a',
+          },
+          {
+            label: 'Missed',
+            data: entries.map(([, v]) => v.planned - v.done),
+            backgroundColor: alpha(error, 0.25),
+            borderColor: alpha(error, 0.4),
+            borderWidth: 1,
+            borderRadius: 4,
+            stack: 'a',
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y}`,
+              footer: items => {
+                const done    = items[0]?.parsed.y ?? 0;
+                const missed  = items[1]?.parsed.y ?? 0;
+                const total   = done + missed;
+                return total > 0 ? `${Math.round((done / total) * 100)}% complete` : '';
+              },
+            },
+          },
+        },
+        scales: {
+          x: { stacked: true, grid: { color: alpha(grid, 0.4) }, ticks: { color: alpha(content, 0.5), font: { size: 11 } } },
+          y: { stacked: true, grid: { color: alpha(grid, 0.4) }, ticks: { color: alpha(content, 0.5), font: { size: 11 } }, beginAtZero: true, max: 7 },
+        },
+      },
+    });
+    return () => chart.destroy();
+  });
+
+  $effect(() => {
+    if (!lineCanvas || !selected || !data) return;
+    const primary = cssColor('--color-primary');
+    const content = cssColor('--color-base-content');
+    const grid    = cssColor('--color-base-300');
+
+    const pts = (data.byExercise[selected] ?? []).filter(p => p.maxWeight != null);
+
+    const chart = new Chart(lineCanvas, {
+      type: 'line',
+      data: {
+        labels: pts.map(p =>
+          new Date(p.date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+        ),
+        datasets: [{
+          data: pts.map(p => p.maxWeight),
+          borderColor: primary,
+          backgroundColor: alpha(primary, 0.15),
+          fill: true,
+          tension: 0.4,
+          pointRadius: 4,
+          pointBackgroundColor: primary,
+          pointHoverRadius: 6,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} kg` } },
+        },
+        scales: {
+          x: { grid: { color: alpha(grid, 0.4) }, ticks: { color: alpha(content, 0.5), font: { size: 11 } } },
+          y: {
+            grid: { color: alpha(grid, 0.4) },
+            ticks: { color: alpha(content, 0.5), font: { size: 11 }, callback: v => `${v}kg` },
+          },
+        },
+      },
+    });
+    return () => chart.destroy();
+  });
+
+  let exercises = $derived(data ? Object.keys(data.byExercise).sort() : []);
 </script>
 
 <div class="max-w-lg mx-auto p-4 pb-24">
@@ -46,91 +185,66 @@
     <h1 class="text-xl font-bold">Analytics</h1>
   </div>
 
-  {#await getStrengthData()}
+  {#if !data}
     <div class="flex justify-center py-12"><span class="loading loading-spinner loading-md"></span></div>
-  {:then data}
-    {@const exercises = Object.keys(data.byExercise).sort()}
-
-    {#if exercises.length === 0}
-      <p class="text-sm text-base-content/40 text-center py-12">No workout logs yet.</p>
-    {:else}
-      <!-- Weekly volume chart -->
-      {@const volChart = buildVolume(data.weeklyVolume)}
-      {#if volChart}
-        <div class="bg-base-200 rounded-2xl p-4 mb-6">
-          <p class="text-xs font-semibold uppercase tracking-wide text-base-content/40 mb-3">Weekly Volume (kg × reps)</p>
-          <svg viewBox="0 0 {volChart.W} {volChart.H}" class="w-full" preserveAspectRatio="none">
-            {#each volChart.bars as bar}
-              <rect
-                x={bar.x} y={bar.y - bar.h}
-                width={bar.w} height={bar.h}
-                style="fill: var(--color-primary); opacity: 0.6" rx="2"
-              />
-            {/each}
-          </svg>
-          <p class="text-xs text-base-content/30 text-right mt-1">Last 12 weeks · peak {volChart.maxV.toLocaleString()} kg</p>
-        </div>
-      {/if}
-
-      <!-- Exercise selector -->
-      <p class="text-xs font-semibold uppercase tracking-wide text-base-content/40 mb-3">Strength Progression</p>
-      <div class="flex flex-wrap gap-2 mb-4">
-        {#each exercises as ex}
-          <button
-            class="btn btn-xs {selected === ex ? 'btn-primary' : 'btn-ghost'} capitalize"
-            onclick={() => selected = selected === ex ? null : ex}
-          >{ex}</button>
-        {/each}
+  {:else if exercises.length === 0}
+    <p class="text-sm text-base-content/40 text-center py-12">No workout logs yet.</p>
+  {:else}
+    <div class="bg-base-200 rounded-2xl p-4 mb-6">
+      <p class="text-xs font-semibold uppercase tracking-wide text-base-content/40 mb-3">Weekly Volume (kg × reps)</p>
+      <div class="relative h-44">
+        <canvas bind:this={volCanvas}></canvas>
       </div>
+    </div>
 
-      {#if selected && data.byExercise[selected]}
-        {@const pts  = data.byExercise[selected]}
-        {@const wLine = buildLine(pts, 'maxWeight')}
-        {@const rLine = buildLine(pts, 'maxReps')}
-        <div class="bg-base-200 rounded-2xl p-4">
-          <p class="text-sm font-semibold capitalize mb-3">{selected}</p>
+    <div class="bg-base-200 rounded-2xl p-4 mb-6">
+      <p class="text-xs font-semibold uppercase tracking-wide text-base-content/40 mb-1">Workout Adherence</p>
+      <p class="text-xs text-base-content/30 mb-3">Planned vs completed · last 12 weeks</p>
+      <div class="relative h-44">
+        <canvas bind:this={adherenceCanvas}></canvas>
+      </div>
+      <div class="flex gap-4 mt-3">
+        <span class="flex items-center gap-1.5 text-xs text-base-content/40">
+          <span class="inline-block w-3 h-3 rounded-sm bg-primary opacity-80"></span>Done
+        </span>
+        <span class="flex items-center gap-1.5 text-xs text-base-content/40">
+          <span class="inline-block w-3 h-3 rounded-sm bg-error opacity-25"></span>Missed
+        </span>
+      </div>
+    </div>
 
-          {#if wLine}
-            <p class="text-xs text-base-content/40 mb-1">Max weight</p>
-            <svg viewBox="0 0 {wLine.W} {wLine.H}" class="w-full mb-1" preserveAspectRatio="none">
-              <polyline points={wLine.coords} style="fill:none;stroke:var(--color-primary);stroke-width:2;stroke-linecap:round;stroke-linejoin:round"/>
-            </svg>
-            <div class="flex justify-between text-xs text-base-content/30 mb-4">
-              <span>{wLine.minV} kg</span>
-              <span class="font-medium text-base-content/60">{wLine.latest} kg latest</span>
-              <span>{wLine.maxV} kg</span>
-            </div>
-          {/if}
+    <p class="text-xs font-semibold uppercase tracking-wide text-base-content/40 mb-3">Strength Progression</p>
+    <div class="flex flex-wrap gap-2 mb-4">
+      {#each exercises as ex}
+        <button
+          class="btn btn-xs {selected === ex ? 'btn-primary' : 'btn-ghost'} capitalize"
+          onclick={() => selected = selected === ex ? null : ex}
+        >{ex}</button>
+      {/each}
+    </div>
 
-          {#if rLine && !wLine}
-            <p class="text-xs text-base-content/40 mb-1">Max reps</p>
-            <svg viewBox="0 0 {rLine.W} {rLine.H}" class="w-full mb-1" preserveAspectRatio="none">
-              <polyline points={rLine.coords} style="fill:none;stroke:var(--color-secondary);stroke-width:2;stroke-linecap:round;stroke-linejoin:round"/>
-            </svg>
-            <div class="flex justify-between text-xs text-base-content/30">
-              <span>{rLine.minV}</span>
-              <span class="font-medium text-base-content/60">{rLine.latest} latest</span>
-              <span>{rLine.maxV}</span>
-            </div>
-          {/if}
-
-          <!-- Session list -->
-          <div class="mt-3 space-y-1">
-            {#each [...pts].reverse().slice(0, 8) as pt}
-              <div class="flex justify-between text-xs text-base-content/50">
-                <span>{new Date(pt.date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
-                <span class="tabular-nums">
-                  {#if pt.maxWeight != null}{pt.maxWeight}kg{/if}
-                  {#if pt.maxReps != null}{pt.maxWeight != null ? ' · ' : ''}{pt.maxReps} reps{/if}
-                  · {pt.sets} sets
-                </span>
-              </div>
-            {/each}
-          </div>
+    {#if selected && data.byExercise[selected]}
+      {@const pts = data.byExercise[selected]}
+      <div class="bg-base-200 rounded-2xl p-4">
+        <p class="text-sm font-semibold capitalize mb-3">{selected}</p>
+        <div class="relative h-52">
+          <canvas bind:this={lineCanvas}></canvas>
         </div>
-      {:else if !selected}
-        <p class="text-xs text-base-content/30 text-center py-4">Select an exercise above</p>
-      {/if}
+        <div class="mt-4 space-y-1.5 border-t border-base-300 pt-3">
+          {#each [...pts].reverse().slice(0, 8) as pt}
+            <div class="flex justify-between text-xs text-base-content/50">
+              <span>{new Date(pt.date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+              <span class="tabular-nums">
+                {#if pt.maxWeight != null}{pt.maxWeight}kg{/if}
+                {#if pt.maxReps != null}{pt.maxWeight != null ? ' · ' : ''}{pt.maxReps} reps{/if}
+                · {pt.sets} sets
+              </span>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {:else if !selected}
+      <p class="text-xs text-base-content/30 text-center py-4">Select an exercise above</p>
     {/if}
-  {/await}
+  {/if}
 </div>
