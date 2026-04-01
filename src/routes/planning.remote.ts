@@ -274,6 +274,81 @@ Instructions:
   return { notes: parsed.notes };
 });
 
+export const generateBlankDayWorkout = command(v.object({
+  date:    DateSchema,
+  request: v.optional(v.string()),
+}), async ({ date, request }) => {
+  const d = new Date(date + 'T12:00:00');
+  d.setDate(d.getDate() - (d.getDay() + 6) % 7);
+  const weekStart = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const weekDates = buildWeekDates(weekStart);
+
+  const [weekPlans, weekSessions, gear, userNotes, exConfigs, exLogs, settings] = await Promise.all([
+    db.select().from(plans).where(inArray(plans.date, weekDates)),
+    db.select().from(sessions).where(inArray(sessions.date, weekDates)),
+    db.select().from(equipment),
+    db.select().from(training_notes),
+    db.select({ name: exercise_config.name }).from(exercise_config),
+    db.select({ name: workout_logs.exercise_name }).from(workout_logs),
+    db.select().from(user_settings),
+  ]);
+  const settingsMap    = Object.fromEntries(settings.map(s => [s.key, s.value]));
+  const knownExercises = [...new Set([...exConfigs.map(r => r.name), ...exLogs.map(r => r.name)])].sort();
+  const dayName        = new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long' });
+
+  const gearStr = gear.length
+    ? gear.map(e => {
+        let w = '';
+        if (e.weight_type === 'single' && e.weight_min != null) w = ` (${e.weight_min}kg)`;
+        if (e.weight_type === 'range' && e.weight_min != null && e.weight_max != null) w = ` (${e.weight_min}–${e.weight_max}kg)`;
+        return `- ${e.name}${w}`;
+      }).join('\n')
+    : 'None listed';
+
+  const dayLines = weekDates.map(wd => {
+    const name    = new Date(wd + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long' });
+    const isRun   = weekSessions.some(s => s.date === wd && s.type === 'run') || weekPlans.some(p => p.date === wd && p.type === 'run');
+    const isRest  = weekPlans.some(p => p.date === wd && p.type === 'rest');
+    const workout = weekPlans.find(p => p.date === wd && p.type === 'workout');
+    if (wd === date) return `${name} ${wd}: TARGET DAY`;
+    if (isRun)       return `${name} ${wd}: run day`;
+    if (isRest)      return `${name} ${wd}: rest day`;
+    if (workout)     return `${name} ${wd}: workout — ${workout.notes ?? ''}`;
+    return `${name} ${wd}: free`;
+  }).join('\n');
+
+  const prompt = `You are a strength and conditioning coach. Generate a single gym workout for ${dayName} ${date}.
+${request ? `\nPRIMARY DIRECTIVE — the user has specifically requested: "${request}". You MUST build the entire workout around this request. Every exercise must match it.\n` : ''}
+Available equipment:
+${gearStr}
+
+Previously used exercise names (reuse these exact names where relevant — but freely add any standard exercises needed to fulfil the request):
+${knownExercises.length ? knownExercises.map(n => `- ${n}`).join('\n') : 'None yet'}
+${settingsMap.phase ? `\nCurrent training phase: ${settingsMap.phase}` : ''}${settingsMap.restrictions ? `\nMovement restrictions / injuries: ${settingsMap.restrictions}` : ''}
+${userNotes.length ? `\nTraining requirements (must follow):\n${userNotes.map(n => `- ${n.note}`).join('\n')}` : ''}
+${request ? '' : `\nWeek context (for muscle-group balancing only):\n${dayLines}`}
+Instructions:
+- Use the available equipment; prescribe sets and reps only, never weights
+- Reply with ONLY this JSON — no markdown, no explanation:
+{"notes":"Push Day: bench press 3×10, shoulder press 3×8, tricep dips 3×12"}`;
+
+  const client   = getClient();
+  const response = await client.messages.create({
+    model:      'claude-haiku-4-5',
+    max_tokens: 512,
+    messages:   [{ role: 'user', content: prompt }],
+  });
+
+  await logUsage('claude-haiku-4-5', response.usage, 'generate blank day workout');
+
+  const text      = response.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('');
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('No JSON in Claude response');
+
+  const parsed = JSON.parse(jsonMatch[0]) as { notes: string };
+  return { notes: parsed.notes };
+});
+
 export const acceptDayWorkout = command(AcceptDayWorkoutSchema, async ({ date, notes }) => {
   const [existing] = await db.select().from(plans)
     .where(and(eq(plans.date, date), eq(plans.type, 'workout')))

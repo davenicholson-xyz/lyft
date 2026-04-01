@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { getWorkout, saveSet, deleteSet, getExerciseNames, addExerciseToPlan, removeExerciseFromPlan, reorderExercise, finishWorkout } from '../../workout.remote';
+  import { generateBlankDayWorkout, acceptDayWorkout } from '../../planning.remote';
   import { saveTemplate } from '../../templates.remote';
 
   let { data } = $props();
@@ -35,6 +36,7 @@
 
   // Rest timer
   const REST_DEFAULT = 180;
+  const TIMER_KEY    = 'rest-timer';
   let timerActive   = $state(false);
   let timerSeconds  = $state(REST_DEFAULT);
   let timerTotal    = $state(REST_DEFAULT);
@@ -45,6 +47,45 @@
   // Active exercise modal
   let activeEx         = $state<Workout['exercises'][number] | null>(null);
   let activeExDialogEl = $state<HTMLDialogElement | null>(null);
+
+  // Blank day generation
+  let generateRequest  = $state('');
+  let generating       = $state(false);
+  let generatedPreview = $state<string | null>(null);
+  let generateError    = $state<string | null>(null);
+
+  function parseWorkoutPreview(notes: string): string[] {
+    const colonIdx = notes.indexOf(':');
+    if (colonIdx === -1) return notes.split(',').map(s => s.trim()).filter(Boolean);
+    const title     = notes.slice(0, colonIdx).trim();
+    const exercises = notes.slice(colonIdx + 1).split(',').map(s => s.trim()).filter(Boolean);
+    return [title, ...exercises.map(e => `· ${e}`)];
+  }
+
+  async function handleGenerate() {
+    generating    = true;
+    generateError = null;
+    try {
+      const result  = await generateBlankDayWorkout({ date, request: generateRequest || undefined });
+      generatedPreview = result.notes;
+    } catch {
+      generateError = 'Generation failed. Try again.';
+    } finally {
+      generating = false;
+    }
+  }
+
+  async function handleAcceptGenerated() {
+    if (!generatedPreview) return;
+    generating = true;
+    try {
+      await acceptDayWorkout({ date, notes: generatedPreview });
+      await goto('/');
+    } catch {
+      generateError = 'Failed to save. Try again.';
+      generating = false;
+    }
+  }
 
   // Confirm remove set
   let pendingRemoveSet    = $state<{ exerciseName: string; setNumber: number } | null>(null);
@@ -198,21 +239,59 @@
     timerStart   = Date.now();
     timerSeconds = REST_DEFAULT;
     timerActive  = true;
+    localStorage.setItem(TIMER_KEY, JSON.stringify({ timerStart, timerTotal, timerExName }));
     timerInterval = setInterval(() => {
       const elapsed = Math.floor((Date.now() - timerStart) / 1000);
       timerSeconds = Math.max(0, timerTotal - elapsed);
       if (timerSeconds <= 0) {
         clearInterval(timerInterval!);
         timerInterval = null;
+        localStorage.removeItem(TIMER_KEY);
         if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
         setTimeout(() => { timerActive = false; }, 1500);
       }
     }, 1000);
   }
 
+  function adjustTimer(delta: number) {
+    timerStart += delta * 1000;
+    timerTotal = Math.max(timerTotal + delta, 0);
+    timerSeconds = Math.max(0, timerTotal - Math.floor((Date.now() - timerStart) / 1000));
+    localStorage.setItem(TIMER_KEY, JSON.stringify({ timerStart, timerTotal, timerExName }));
+  }
+
   function dismissTimer() {
     if (timerInterval !== null) { clearInterval(timerInterval); timerInterval = null; }
     timerActive = false;
+    localStorage.removeItem(TIMER_KEY);
+  }
+
+  function restoreTimer() {
+    const saved = localStorage.getItem(TIMER_KEY);
+    if (!saved) return;
+    try {
+      const d = JSON.parse(saved);
+      const elapsed = Math.floor((Date.now() - d.timerStart) / 1000);
+      if (elapsed >= d.timerTotal) { localStorage.removeItem(TIMER_KEY); return; }
+      timerStart   = d.timerStart;
+      timerTotal   = d.timerTotal;
+      timerExName  = d.timerExName ?? '';
+      timerSeconds = Math.max(0, d.timerTotal - elapsed);
+      timerActive  = true;
+      timerInterval = setInterval(() => {
+        const el = Math.floor((Date.now() - timerStart) / 1000);
+        timerSeconds = Math.max(0, timerTotal - el);
+        if (timerSeconds <= 0) {
+          clearInterval(timerInterval!);
+          timerInterval = null;
+          localStorage.removeItem(TIMER_KEY);
+          if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
+          setTimeout(() => { timerActive = false; }, 1500);
+        }
+      }, 1000);
+    } catch {
+      localStorage.removeItem(TIMER_KEY);
+    }
   }
 
   async function confirmRemoveSet() {
@@ -231,6 +310,7 @@
   }
 
   $effect(() => {
+    restoreTimer();
     return () => { if (timerInterval !== null) clearInterval(timerInterval); };
   });
 
@@ -276,7 +356,46 @@
   {#if loading}
     <div class="flex justify-center py-16"><span class="loading loading-spinner loading-md"></span></div>
   {:else if !workout}
-    <p class="text-base-content/50 text-sm p-4">No workout found for this date.</p>
+    <div class="px-4 pt-8 space-y-4">
+      {#if generatedPreview}
+        <div class="space-y-4">
+          <p class="font-semibold">Generated workout</p>
+          <div class="bg-base-200 rounded-xl p-4 space-y-1.5">
+            {#each parseWorkoutPreview(generatedPreview) as line, i}
+              <p class="text-sm {i === 0 ? 'font-semibold' : 'text-base-content/70'}">{line}</p>
+            {/each}
+          </div>
+          {#if generateError}<p class="text-error text-sm">{generateError}</p>{/if}
+          <div class="flex gap-2">
+            <button class="btn btn-primary flex-1" onclick={handleAcceptGenerated} disabled={generating}>
+              {#if generating}<span class="loading loading-spinner loading-sm"></span>{/if}
+              Add workout
+            </button>
+            <button class="btn btn-ghost" onclick={() => { generatedPreview = null; generateError = null; }} disabled={generating}>Regenerate</button>
+          </div>
+        </div>
+      {:else}
+        <div class="text-center space-y-1 mb-2">
+          <p class="font-semibold">No workout planned</p>
+          <p class="text-sm text-base-content/50">Generate one with AI</p>
+        </div>
+        <textarea
+          class="textarea textarea-bordered w-full resize-none"
+          rows="2"
+          placeholder="e.g. legs day, chest and triceps, random upper body…"
+          bind:value={generateRequest}
+          onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleGenerate(); } }}
+        ></textarea>
+        {#if generateError}<p class="text-error text-sm">{generateError}</p>{/if}
+        <button class="btn btn-primary w-full" onclick={handleGenerate} disabled={generating}>
+          {#if generating}
+            <span class="loading loading-spinner loading-sm"></span> Generating…
+          {:else}
+            Generate workout
+          {/if}
+        </button>
+      {/if}
+    </div>
   {:else}
     <div class="space-y-8 px-4 pt-5">
       {#each workout.exercises as ex, idx}
@@ -449,12 +568,12 @@
           <div class="flex items-center justify-between">
             <button
               class="btn btn-ghost btn-sm text-base-content/60 font-mono"
-              onclick={() => { timerStart -= 30000; timerTotal = Math.max(timerTotal - 30, 0); timerSeconds = Math.max(0, timerTotal - Math.floor((Date.now() - timerStart) / 1000)); }}
+              onclick={() => adjustTimer(-30)}
             >−30s</button>
             <span class="text-4xl font-bold font-mono tabular-nums text-success">{formatTime(timerSeconds)}</span>
             <button
               class="btn btn-ghost btn-sm text-base-content/60 font-mono"
-              onclick={() => { timerStart += 30000; timerTotal += 30; timerSeconds = timerTotal - Math.floor((Date.now() - timerStart) / 1000); }}
+              onclick={() => adjustTimer(30)}
             >+30s</button>
           </div>
           <div class="flex justify-center mt-1">
@@ -490,12 +609,12 @@
     <div class="flex items-center justify-between">
       <button
         class="btn btn-ghost btn-sm text-base-content/60 font-mono"
-        onclick={() => { timerStart -= 30000; timerTotal = Math.max(timerTotal - 30, 0); timerSeconds = Math.max(0, timerTotal - Math.floor((Date.now() - timerStart) / 1000)); }}
+        onclick={() => adjustTimer(-30)}
       >−30s</button>
       <span class="text-3xl font-bold font-mono tabular-nums text-success">{formatTime(timerSeconds)}</span>
       <button
         class="btn btn-ghost btn-sm text-base-content/60 font-mono"
-        onclick={() => { timerStart += 30000; timerTotal += 30; timerSeconds = timerTotal - Math.floor((Date.now() - timerStart) / 1000); }}
+        onclick={() => adjustTimer(30)}
       >+30s</button>
     </div>
   </div>

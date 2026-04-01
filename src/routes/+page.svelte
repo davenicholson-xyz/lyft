@@ -716,7 +716,14 @@
             <div class="mb-5 animate-pulse h-20 rounded-xl bg-base-200"></div>
           {:then results}
             {@const allPlans = results.flatMap(r => r.plans)}
+            {@const currentPlan = allPlans.find(p => p.date === selectedDate)}
             <div class="mb-5 border border-base-300 rounded-xl overflow-hidden">
+              <div class="px-4 py-2.5 flex items-center justify-between border-b border-base-300 bg-base-200/50">
+                <span class="text-xs text-base-content/40">Moving</span>
+                <span class="text-sm font-medium capitalize">
+                  {currentPlan ? planLabel(currentPlan.type, currentPlan.notes) : 'Empty day'}
+                </span>
+              </div>
               {#each siblings as sib}
                 {@const sibPlan = allPlans.find(p => p.date === sib)}
                 <button
