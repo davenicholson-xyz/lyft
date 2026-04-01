@@ -64,7 +64,7 @@
               <rect
                 x={bar.x} y={bar.y - bar.h}
                 width={bar.w} height={bar.h}
-                fill="oklch(var(--p))" opacity="0.6" rx="2"
+                style="fill: oklch(var(--p)); opacity: 0.6" rx="2"
               />
             {/each}
           </svg>
@@ -93,7 +93,7 @@
           {#if wLine}
             <p class="text-xs text-base-content/40 mb-1">Max weight</p>
             <svg viewBox="0 0 {wLine.W} {wLine.H}" class="w-full mb-1" preserveAspectRatio="none">
-              <polyline points={wLine.coords} fill="none" stroke="oklch(var(--p))" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <polyline points={wLine.coords} style="fill:none;stroke:oklch(var(--p));stroke-width:2;stroke-linecap:round;stroke-linejoin:round"/>
             </svg>
             <div class="flex justify-between text-xs text-base-content/30 mb-4">
               <span>{wLine.minV} kg</span>
@@ -105,7 +105,7 @@
           {#if rLine && !wLine}
             <p class="text-xs text-base-content/40 mb-1">Max reps</p>
             <svg viewBox="0 0 {rLine.W} {rLine.H}" class="w-full mb-1" preserveAspectRatio="none">
-              <polyline points={rLine.coords} fill="none" stroke="oklch(var(--s))" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <polyline points={rLine.coords} style="fill:none;stroke:oklch(var(--s));stroke-width:2;stroke-linecap:round;stroke-linejoin:round"/>
             </svg>
             <div class="flex justify-between text-xs text-base-content/30">
               <span>{rLine.minV}</span>
