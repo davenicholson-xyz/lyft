@@ -74,11 +74,7 @@
           <svg viewBox="0 0 {chart.W} {chart.H}" class="w-full" preserveAspectRatio="none">
             <polyline
               points={chart.pts}
-              fill="none"
-              stroke="oklch(var(--p))"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+              style="fill:none;stroke:var(--color-primary);stroke-width:2;stroke-linecap:round;stroke-linejoin:round"
             />
           </svg>
           <div class="flex justify-between mt-1">
