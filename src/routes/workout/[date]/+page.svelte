@@ -297,11 +297,9 @@
   async function confirmRemoveSet() {
     if (!pendingRemoveSet) return;
     await deleteSet({ date, exercise_name: pendingRemoveSet.exerciseName, set_number: pendingRemoveSet.setNumber });
-    const name = pendingRemoveSet.exerciseName;
-    const current = visibleSets[name] ?? 1;
-    if (current > 1) visibleSets[name] = current - 1;
     confirmRemoveSetEl?.close();
     pendingRemoveSet = null;
+    refreshKey++;
   }
 
   function openExerciseModal(ex: Workout['exercises'][number]) {

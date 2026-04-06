@@ -212,8 +212,8 @@ export const removeExerciseFromPlan = command(DateExSchema, async ({ date, name 
   const title    = colonIdx !== -1 ? plan.notes.slice(0, colonIdx).trim() : null;
   const exStr    = colonIdx !== -1 ? plan.notes.slice(colonIdx + 1) : plan.notes;
 
-  const kept = exStr.split(',').map(s => s.trim()).filter(part => {
-    const m      = part.match(/^(.+?)\s+\d+[×x]\d+/i);
+  const kept = exStr.split(',').map(s => s.trim()).filter(Boolean).filter(part => {
+    const m      = part.match(/^(.+?)\s+\d+[×x]\d+s?$/i);
     const exName = m ? m[1].trim() : part;
     return exName.toLowerCase() !== name.toLowerCase();
   });
