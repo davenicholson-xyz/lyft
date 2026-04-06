@@ -48,6 +48,10 @@
   let activeEx         = $state<Workout['exercises'][number] | null>(null);
   let activeExDialogEl = $state<HTMLDialogElement | null>(null);
 
+  // Big Mode
+  let bigMode         = $state(false);
+  let bigModeActiveEx = $state<Workout['exercises'][number] | null>(null);
+
   // Blank day generation
   let generateRequest  = $state('');
   let generating       = $state(false);
@@ -303,8 +307,12 @@
   }
 
   function openExerciseModal(ex: Workout['exercises'][number]) {
-    activeEx = ex;
-    activeExDialogEl?.showModal();
+    if (bigMode) {
+      bigModeActiveEx = ex;
+    } else {
+      activeEx = ex;
+      activeExDialogEl?.showModal();
+    }
   }
 
   $effect(() => {
@@ -339,6 +347,14 @@
         title="Save as template"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24"><path fill="currentColor" d="M15 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7zm0 2l2 2h-2zM7 5h6v4h4v10H7z"/></svg>
+      </button>
+      <button
+        class="btn btn-ghost btn-sm btn-circle {bigMode ? 'text-primary' : 'text-base-content/40 hover:text-base-content'}"
+        onclick={() => { bigMode = !bigMode; if (!bigMode) bigModeActiveEx = null; }}
+        aria-label="Toggle big mode"
+        title="Big mode"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5M12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5s5 2.24 5 5s-2.24 5-5 5m0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3s3-1.34 3-3s-1.34-3-3-3"/></svg>
       </button>
       <button
         class="btn btn-circle btn-sm bg-success border-success text-success-content hover:bg-success/80"
@@ -460,6 +476,164 @@
     </div>
   {/if}
 </div>
+
+<!-- Big Mode: Exercise List overlay -->
+{#if bigMode && bigModeActiveEx === null && workout}
+  <div class="fixed inset-0 z-50 bg-base-100 flex flex-col overflow-hidden">
+    <!-- Sticky top bar -->
+    <div class="sticky top-0 bg-base-100 border-b border-base-200 px-4 py-4 flex items-center justify-between shrink-0">
+      <div>
+        <div class="text-xs text-base-content/40 uppercase tracking-wide">{dayLabel(date)}</div>
+        {#if workout.title}
+          <div class="font-bold text-xl leading-tight">{workout.title}</div>
+        {/if}
+      </div>
+      <button
+        class="btn btn-ghost btn-circle text-base-content/50 hover:text-base-content text-2xl"
+        onclick={() => { bigMode = false; bigModeActiveEx = null; }}
+        aria-label="Exit big mode"
+      >✕</button>
+    </div>
+
+    <!-- Exercise cards -->
+    <div class="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      {#each workout.exercises as ex}
+        {@const done = ex.currentLogs.length}
+        {@const total = ex.sets}
+        <button
+          class="w-full text-left bg-base-200 rounded-2xl py-5 px-6 flex items-center justify-between gap-4 active:scale-[0.98] transition-transform"
+          onclick={() => openExerciseModal(ex)}
+        >
+          <span class="text-3xl font-bold capitalize leading-tight">{ex.name}</span>
+          <div class="flex gap-1.5 shrink-0">
+            {#each { length: total } as _, i}
+              <span class="inline-block w-3 h-3 rounded-full {i < done ? 'bg-success' : 'bg-base-300'}"></span>
+            {/each}
+          </div>
+        </button>
+      {/each}
+    </div>
+
+    <!-- Finish workout -->
+    <div class="shrink-0 px-4 py-4 border-t border-base-200">
+      <button
+        class="btn btn-success btn-lg w-full text-xl"
+        onclick={async () => { await finishWorkout(date); goto('/'); }}
+      >Finish Workout</button>
+    </div>
+  </div>
+{/if}
+
+<!-- Big Mode: Set Entry overlay -->
+{#if bigMode && bigModeActiveEx !== null}
+  {@const ex    = bigModeActiveEx}
+  {@const type  = exTypes[ex.name] ?? 'weighted'}
+  {@const nSets = visibleSets[ex.name] ?? 1}
+  <div class="fixed inset-0 z-50 bg-base-100 flex flex-col overflow-hidden">
+    <!-- Sticky header -->
+    <div class="sticky top-0 bg-base-100 border-b border-base-200 px-4 py-4 flex items-center gap-3 shrink-0">
+      <button
+        class="btn btn-ghost btn-circle text-base-content/50 hover:text-base-content"
+        onclick={() => bigModeActiveEx = null}
+        aria-label="Back"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+      </button>
+      <span class="text-2xl font-bold capitalize leading-tight">{ex.name}</span>
+    </div>
+
+    <!-- Sets -->
+    <div class="flex-1 overflow-y-auto px-4 py-4">
+      <!-- Column headers -->
+      {#if type === 'weighted'}
+        <div class="grid grid-cols-[2.5rem_1fr_1fr_2rem] gap-3 mb-3 px-1">
+          <span></span>
+          <span class="text-sm text-base-content/40 text-center">Reps</span>
+          <span class="text-sm text-base-content/40 text-center">kg</span>
+          <span></span>
+        </div>
+      {:else}
+        <div class="grid grid-cols-[2.5rem_1fr_2rem] gap-3 mb-3 px-1">
+          <span></span>
+          <span class="text-sm text-base-content/40 text-center">{type === 'timed' ? 'Seconds' : 'Reps'}</span>
+          <span></span>
+        </div>
+      {/if}
+
+      <div class="space-y-3">
+        {#each { length: nSets } as _, i}
+          {@const setNum = i + 1}
+          {@const key    = `${ex.name}__${setNum}`}
+          {#if type === 'weighted'}
+            <div class="grid grid-cols-[2.5rem_1fr_1fr_2rem] gap-3 items-center">
+              <span class="text-lg text-base-content/30 text-center font-mono">{setNum}</span>
+              <input
+                type="number" inputmode="numeric"
+                class="input input-bordered w-full text-center text-4xl font-bold h-20 bg-base-200 border-base-300 focus:border-primary"
+                bind:value={inputs[key].reps}
+                onblur={() => handleBlur(ex.name, setNum)}
+              />
+              <input
+                type="number" inputmode="decimal" step="0.5" placeholder="—"
+                class="input input-bordered w-full text-center text-4xl font-bold h-20 bg-base-200 border-base-300 focus:border-primary"
+                bind:value={inputs[key].weight}
+                onblur={() => handleBlur(ex.name, setNum)}
+              />
+              <button
+                class="text-base-content/20 hover:text-error transition-colors text-lg leading-none"
+                onclick={() => { pendingRemoveSet = { exerciseName: ex.name, setNumber: setNum }; confirmRemoveSetEl?.showModal(); }}
+                aria-label="Remove set {setNum}"
+              >✕</button>
+            </div>
+          {:else}
+            <div class="grid grid-cols-[2.5rem_1fr_2rem] gap-3 items-center">
+              <span class="text-lg text-base-content/30 text-center font-mono">{setNum}</span>
+              <input
+                type="number" inputmode="numeric"
+                class="input input-bordered w-full text-center text-4xl font-bold h-20 bg-base-200 border-base-300 focus:border-primary"
+                bind:value={inputs[key].reps}
+                onblur={() => handleBlur(ex.name, setNum)}
+              />
+              <button
+                class="text-base-content/20 hover:text-error transition-colors text-lg leading-none"
+                onclick={() => { pendingRemoveSet = { exerciseName: ex.name, setNumber: setNum }; confirmRemoveSetEl?.showModal(); }}
+                aria-label="Remove set {setNum}"
+              >✕</button>
+            </div>
+          {/if}
+        {/each}
+      </div>
+
+      <!-- Rest timer (large, inline) -->
+      {#if timerActive}
+        <div class="mt-6 pt-6 border-t border-base-300">
+          <div class="h-2 bg-base-300 rounded-full overflow-hidden mb-4">
+            <div
+              class="h-full bg-success transition-all duration-1000 ease-linear"
+              style="width: {(timerSeconds / timerTotal) * 100}%;"
+            ></div>
+          </div>
+          <div class="flex items-center justify-between">
+            <button class="btn btn-ghost btn-lg text-2xl font-mono text-base-content/60" onclick={() => adjustTimer(-30)}>−30s</button>
+            <span class="text-7xl font-bold font-mono tabular-nums text-success">{formatTime(timerSeconds)}</span>
+            <button class="btn btn-ghost btn-lg text-2xl font-mono text-base-content/60" onclick={() => adjustTimer(30)}>+30s</button>
+          </div>
+          <div class="flex justify-center mt-2">
+            <button class="btn btn-ghost btn-sm text-base-content/30 hover:text-base-content" onclick={dismissTimer}>dismiss timer</button>
+          </div>
+        </div>
+      {/if}
+    </div>
+
+    <!-- Actions -->
+    <div class="shrink-0 px-4 py-4 border-t border-base-200 flex gap-3">
+      <button class="btn btn-outline btn-lg flex-1 text-xl" onclick={() => addSet(ex)}>+ Add set</button>
+      <button class="btn btn-success btn-lg flex-1 text-xl" onclick={() => bigModeActiveEx = null}>Done</button>
+    </div>
+  </div>
+{/if}
 
 <!-- Exercise entry modal -->
 <dialog bind:this={activeExDialogEl} class="modal modal-bottom sm:modal-middle" onclose={() => activeEx = null}>
@@ -591,7 +765,7 @@
 <!-- Rest timer -->
 <div
   class="fixed left-0 right-0 bottom-16 z-30 bg-base-200 border-t border-base-300 shadow-lg timer-bar"
-  class:timer-bar--visible={timerActive && activeEx === null}
+  class:timer-bar--visible={timerActive && activeEx === null && !(bigMode && bigModeActiveEx !== null)}
 >
   <div class="absolute top-0 left-0 right-0 h-0.5 bg-base-300 overflow-hidden">
     <div
