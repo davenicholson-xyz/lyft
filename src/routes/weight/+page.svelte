@@ -41,7 +41,7 @@
   }
 </script>
 
-<div class="max-w-lg mx-auto p-4 pb-24">
+<div class="max-w-lg md:max-w-2xl mx-auto p-4 pb-24">
   <div class="flex items-center gap-3 pt-2 mb-6">
     <button class="btn btn-ghost btn-sm btn-circle" onclick={() => goto('/')}>
       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -66,7 +66,7 @@
   }
 </script>
 
-<div class="max-w-lg mx-auto p-4 pb-24">
+<div class="max-w-lg md:max-w-2xl mx-auto p-4 pb-24">
   <h1 class="text-xl font-bold mb-6 pt-2">Settings</h1>
 
   <!-- Data management -->

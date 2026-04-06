@@ -24,7 +24,7 @@
   }
 </script>
 
-<div class="p-4 max-w-lg mx-auto pb-24">
+<div class="p-4 max-w-lg md:max-w-2xl mx-auto pb-24">
   <h1 class="text-xl font-bold mb-1 pt-2">Training notes</h1>
   <p class="text-sm text-base-content/50 mb-5">Sent to the AI when generating your weekly plan.</p>
 

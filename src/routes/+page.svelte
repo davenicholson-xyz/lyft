@@ -268,7 +268,7 @@
   }
 </script>
 
-<div class="min-h-screen bg-base-100 text-base-content p-4 pb-0 max-w-lg mx-auto">
+<div class="min-h-screen bg-base-100 text-base-content p-4 pb-0 max-w-lg md:max-w-2xl mx-auto">
   <!-- View toggle + Strava -->
   <div class="flex items-center gap-2 mb-4">
     <button
@@ -562,7 +562,7 @@
     return { date, isRun, workout: workout ?? null, isPast };
   })}
   <div class="fixed inset-0 z-50 bg-base-100 overflow-y-auto">
-    <div class="max-w-lg mx-auto px-4 pt-5 pb-36">
+    <div class="max-w-lg md:max-w-2xl mx-auto px-4 pt-5 pb-36">
 
       <!-- Header -->
       <div class="flex items-center justify-between mb-1">
@@ -624,7 +624,7 @@
     </div>
 
     <!-- Sticky footer -->
-    <div class="fixed bottom-0 left-0 right-0 bg-base-100/95 backdrop-blur border-t border-base-200 p-4 max-w-lg mx-auto">
+    <div class="fixed bottom-0 left-0 right-0 bg-base-100/95 backdrop-blur border-t border-base-200 p-4 max-w-lg md:max-w-2xl mx-auto">
       {#if !showRegenInput}
         <div class="flex gap-2">
           <button class="btn btn-primary flex-1" onclick={handleAcceptPlan}>Accept plan</button>
@@ -689,7 +689,7 @@
 {#if selectedDate}
   <div class="fixed inset-0 z-50" onclick={closePanel}>
     <div class="absolute inset-0 bg-black/40"></div>
-    <div class="absolute bottom-0 left-0 right-0 bg-base-100 rounded-t-2xl shadow-2xl max-w-lg mx-auto" onclick={(e) => e.stopPropagation()}>
+    <div class="absolute bottom-0 left-0 right-0 bg-base-100 rounded-t-2xl shadow-2xl max-w-lg md:max-w-2xl mx-auto" onclick={(e) => e.stopPropagation()}>
       <!-- Handle -->
       <div class="flex justify-center pt-3 pb-1">
         <div class="w-10 h-1 rounded-full bg-base-300"></div>

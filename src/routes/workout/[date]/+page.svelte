@@ -319,7 +319,7 @@
   }
 </script>
 
-<div class="max-w-lg mx-auto {timerActive && activeEx === null ? 'pb-48' : 'pb-24'}">
+<div class="max-w-lg md:max-w-2xl mx-auto {timerActive && activeEx === null ? 'pb-48' : 'pb-24'}">
   <!-- Header -->
   <div class="flex items-center gap-3 px-4 py-4 border-b border-base-200">
     <button class="btn btn-ghost btn-sm btn-circle" onclick={() => goto('/')}>
@@ -601,7 +601,7 @@
       style="width: {timerActive ? (timerSeconds / timerTotal) * 100 : 100}%;"
     ></div>
   </div>
-  <div class="max-w-lg mx-auto px-4 py-3">
+  <div class="max-w-lg md:max-w-2xl mx-auto px-4 py-3">
     <div class="flex items-center justify-between mb-1">
       <span class="text-xs text-base-content/40 capitalize truncate max-w-[75%]">rest · {timerExName}</span>
       <button class="btn btn-ghost btn-xs btn-circle text-base-content/40 hover:text-base-content" onclick={dismissTimer} aria-label="Dismiss">✕</button>

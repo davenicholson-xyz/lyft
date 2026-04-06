@@ -18,7 +18,7 @@
   }
 </script>
 
-<div class="p-4 max-w-lg mx-auto pb-24">
+<div class="p-4 max-w-lg md:max-w-2xl mx-auto pb-24">
   <h1 class="text-xl font-bold mb-4 pt-2">Equipment</h1>
 
   {#await getEquipment()}
