@@ -76,20 +76,26 @@ export const getWorkout = query(DateSchema, async (date) => {
       .orderBy(desc(workout_logs.date)),
   ]);
 
-  // Pick the most recent date per exercise, then filter previous logs to only that date
-  const lastDateMap: Record<string, string> = {};
+  // Collect up to 3 most recent distinct dates per exercise
+  const recentDatesMap: Record<string, string[]> = {};
   for (const row of allHistoricalLogs) {
-    if (!lastDateMap[row.exercise_name]) lastDateMap[row.exercise_name] = row.date;
+    const dates = recentDatesMap[row.exercise_name] ?? [];
+    if (!dates.includes(row.date)) {
+      if (dates.length < 3) dates.push(row.date);
+    }
+    recentDatesMap[row.exercise_name] = dates;
   }
-  const allPreviousLogs = allHistoricalLogs.filter(r => r.date === lastDateMap[r.exercise_name]);
 
   const result = [];
   for (const ex of exercises) {
     const unit: ExerciseUnit = configMap[ex.name] ?? ex.parsedUnit;
-    const currentLogs  = allCurrentLogs.filter(l => l.exercise_name === ex.name);
-    const previousLogs = allPreviousLogs.filter(l => l.exercise_name === ex.name);
-    const lastDate     = lastDateMap[ex.name] ?? null;
-    result.push({ name: ex.name, sets: ex.sets, reps: ex.reps, unit, currentLogs, previousLogs, lastDate });
+    const currentLogs = allCurrentLogs.filter(l => l.exercise_name === ex.name);
+    const dates = recentDatesMap[ex.name] ?? [];
+    const recentSessions = dates.map(date => ({
+      date,
+      sets: allHistoricalLogs.filter(l => l.exercise_name === ex.name && l.date === date),
+    }));
+    result.push({ name: ex.name, sets: ex.sets, reps: ex.reps, unit, currentLogs, recentSessions });
   }
 
   return { planId: plan.id, title, exercises: result };

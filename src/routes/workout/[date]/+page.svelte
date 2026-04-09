@@ -47,6 +47,7 @@
   // Active exercise modal
   let activeEx         = $state<Workout['exercises'][number] | null>(null);
   let activeExDialogEl = $state<HTMLDialogElement | null>(null);
+  let historyDialogEl  = $state<HTMLDialogElement | null>(null);
 
   // Big Mode
   let bigMode         = $state(false);
@@ -415,9 +416,10 @@
       {#each workout.exercises as ex, idx}
         {@const type  = exTypes[ex.name] ?? 'weighted'}
         {@const nSets = visibleSets[ex.name] ?? 1}
-        {@const prevRepsH    = ex.previousLogs.map(l => l.reps).filter((v): v is number => v != null)}
+        {@const lastSessionSets = ex.recentSessions[0]?.sets ?? []}
+        {@const prevRepsH    = lastSessionSets.map(l => l.reps).filter((v): v is number => v != null)}
         {@const rMaxH     = prevRepsH.length ? Math.max(...prevRepsH) : null}
-        {@const maxKgLogH = ex.previousLogs.filter(l => l.weight_kg != null).sort((a, b) => (b.weight_kg ?? 0) - (a.weight_kg ?? 0))[0] ?? null}
+        {@const maxKgLogH = lastSessionSets.filter(l => l.weight_kg != null).sort((a, b) => (b.weight_kg ?? 0) - (a.weight_kg ?? 0))[0] ?? null}
         <div class="flex items-center gap-3">
           <div class="flex flex-col">
             <button
@@ -529,6 +531,10 @@
   {@const ex    = bigModeActiveEx}
   {@const type  = exTypes[ex.name] ?? 'weighted'}
   {@const nSets = visibleSets[ex.name] ?? 1}
+  {@const bigLastSets  = ex.recentSessions[0]?.sets ?? []}
+  {@const bigPrevReps  = bigLastSets.map(l => l.reps).filter((v): v is number => v != null)}
+  {@const bigRMax      = bigPrevReps.length ? Math.max(...bigPrevReps) : null}
+  {@const bigMaxKgLog  = bigLastSets.filter(l => l.weight_kg != null).sort((a, b) => (b.weight_kg ?? 0) - (a.weight_kg ?? 0))[0] ?? null}
   <div class="fixed inset-0 z-50 bg-base-100 flex flex-col overflow-hidden">
     <!-- Sticky header -->
     <div class="sticky top-0 bg-base-100 border-b border-base-200 px-4 py-4 flex items-center gap-3 shrink-0">
@@ -541,7 +547,14 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
         </svg>
       </button>
-      <span class="text-2xl font-bold capitalize leading-tight">{ex.name}</span>
+      <div>
+        <span class="text-2xl font-bold capitalize leading-tight">{ex.name}</span>
+        {#if type === 'weighted' && bigMaxKgLog}
+          <p class="text-lg font-semibold text-primary leading-tight">{bigMaxKgLog.reps}@{bigMaxKgLog.weight_kg}kg</p>
+        {:else if type !== 'weighted' && bigRMax != null}
+          <p class="text-lg font-semibold text-primary leading-tight">{type === 'timed' ? `${bigRMax}s` : bigRMax}</p>
+        {/if}
+      </div>
     </div>
 
     <!-- Sets -->
@@ -641,9 +654,10 @@
     {@const ex    = activeEx}
     {@const type  = exTypes[ex.name] ?? 'weighted'}
     {@const nSets = visibleSets[ex.name] ?? 1}
-    {@const prevRepsM    = ex.previousLogs.map(l => l.reps).filter((v): v is number => v != null)}
+    {@const lastSessionSetsM = ex.recentSessions[0]?.sets ?? []}
+    {@const prevRepsM    = lastSessionSetsM.map(l => l.reps).filter((v): v is number => v != null)}
     {@const rMaxM     = prevRepsM.length ? Math.max(...prevRepsM) : null}
-    {@const maxKgLogM = ex.previousLogs.filter(l => l.weight_kg != null).sort((a, b) => (b.weight_kg ?? 0) - (a.weight_kg ?? 0))[0] ?? null}
+    {@const maxKgLogM = lastSessionSetsM.filter(l => l.weight_kg != null).sort((a, b) => (b.weight_kg ?? 0) - (a.weight_kg ?? 0))[0] ?? null}
     <div class="modal-box">
       <!-- Header -->
       <div class="flex items-start justify-between mb-1">
@@ -658,7 +672,18 @@
             {/if}
           </p>
         </div>
-        <button class="btn btn-ghost btn-sm btn-circle text-base-content/40" onclick={() => activeExDialogEl?.close()} aria-label="Close">✕</button>
+        <div class="flex items-center gap-1">
+          <button
+            class="btn btn-ghost btn-sm btn-circle text-base-content/40"
+            onclick={() => historyDialogEl?.showModal()}
+            aria-label="View history"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </button>
+          <button class="btn btn-ghost btn-sm btn-circle text-base-content/40" onclick={() => activeExDialogEl?.close()} aria-label="Close">✕</button>
+        </div>
       </div>
 
       <!-- Column headers -->
@@ -757,6 +782,50 @@
       <div class="modal-action mt-4">
         <button class="btn btn-primary w-full" onclick={() => activeExDialogEl?.close()}>Finished</button>
       </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  {/if}
+</dialog>
+
+<!-- Exercise history dialog -->
+<dialog bind:this={historyDialogEl} class="modal modal-bottom sm:modal-middle">
+  {#if activeEx}
+    {@const ex   = activeEx}
+    {@const type = exTypes[ex.name] ?? 'weighted'}
+    <div class="modal-box">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-bold text-lg capitalize">{ex.name} · History</h3>
+        <button class="btn btn-ghost btn-sm btn-circle text-base-content/40" onclick={() => historyDialogEl?.close()} aria-label="Close">✕</button>
+      </div>
+      {#if ex.recentSessions.length === 0}
+        <p class="text-sm text-base-content/40 text-center py-4">No previous sessions recorded.</p>
+      {:else}
+        <div class="space-y-5">
+          {#each ex.recentSessions as session}
+            <div>
+              <p class="text-xs text-base-content/30 uppercase tracking-widest mb-2">{session.date}</p>
+              <div class="space-y-1">
+                {#each session.sets as log}
+                  <div class="flex items-center gap-3 text-sm">
+                    <span class="text-base-content/25 font-mono w-4 text-right shrink-0">{log.set_number}</span>
+                    {#if type === 'weighted'}
+                      <span class="font-medium tabular-nums">{log.reps ?? '—'}</span>
+                      <span class="text-base-content/40">reps</span>
+                      {#if log.weight_kg != null}
+                        <span class="font-medium tabular-nums ml-1">{log.weight_kg}</span>
+                        <span class="text-base-content/40">kg</span>
+                      {/if}
+                    {:else}
+                      <span class="font-medium tabular-nums">{log.reps ?? '—'}</span>
+                      <span class="text-base-content/40">{type === 'timed' ? 's' : 'reps'}</span>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
     </div>
     <form method="dialog" class="modal-backdrop"><button>close</button></form>
   {/if}
