@@ -559,6 +559,14 @@
 
     <!-- Sets -->
     <div class="flex-1 overflow-y-auto px-4 py-4">
+      <!-- Set progress dots -->
+      <div class="flex items-center justify-center gap-2 mb-4">
+        {#each { length: ex.sets } as _, i}
+          {@const done = ex.currentLogs.some(l => l.set_number === i + 1 && l.reps != null)}
+          <span class="w-3 h-3 rounded-full {done ? 'bg-primary' : 'bg-base-300'}"></span>
+        {/each}
+      </div>
+
       <!-- Column headers -->
       {#if type === 'weighted'}
         <div class="grid grid-cols-[2.5rem_1fr_1fr_2rem] gap-3 mb-3 px-1">
@@ -684,6 +692,14 @@
           </button>
           <button class="btn btn-ghost btn-sm btn-circle text-base-content/40" onclick={() => activeExDialogEl?.close()} aria-label="Close">✕</button>
         </div>
+      </div>
+
+      <!-- Set progress dots -->
+      <div class="flex items-center justify-center gap-1.5 mt-3">
+        {#each { length: ex.sets } as _, i}
+          {@const done = ex.currentLogs.some(l => l.set_number === i + 1 && l.reps != null)}
+          <span class="w-2 h-2 rounded-full {done ? 'bg-primary' : 'bg-base-300'}"></span>
+        {/each}
       </div>
 
       <!-- Column headers -->
