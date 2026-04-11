@@ -509,7 +509,7 @@
           <span class="text-3xl font-bold capitalize leading-tight">{ex.name}</span>
           <div class="flex gap-1.5 shrink-0">
             {#each { length: total } as _, i}
-              <span class="inline-block w-3 h-3 rounded-full {i < done ? 'bg-success' : 'bg-base-300'}"></span>
+              <span class="inline-block w-3 h-3 rounded-full {i < done ? 'bg-success' : 'bg-base-content/20'}"></span>
             {/each}
           </div>
         </button>
@@ -563,7 +563,7 @@
       <div class="flex items-center justify-center gap-2 mb-4">
         {#each { length: ex.sets } as _, i}
           {@const done = ex.currentLogs.some(l => l.set_number === i + 1 && l.reps != null)}
-          <span class="w-3 h-3 rounded-full {done ? 'bg-primary' : 'bg-base-300'}"></span>
+          <span class="w-3 h-3 rounded-full {done ? 'bg-primary' : 'bg-base-content/20'}"></span>
         {/each}
       </div>
 
@@ -698,7 +698,7 @@
       <div class="flex items-center justify-center gap-1.5 mt-3">
         {#each { length: ex.sets } as _, i}
           {@const done = ex.currentLogs.some(l => l.set_number === i + 1 && l.reps != null)}
-          <span class="w-2 h-2 rounded-full {done ? 'bg-primary' : 'bg-base-300'}"></span>
+          <span class="w-2 h-2 rounded-full {done ? 'bg-primary' : 'bg-base-content/20'}"></span>
         {/each}
       </div>
 
