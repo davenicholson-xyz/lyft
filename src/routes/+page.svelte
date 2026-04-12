@@ -136,11 +136,13 @@
     const dots: { type: string; solid: boolean }[] = [];
     const seen = new Set<string>();
 
+    const isPastOrToday = dateStr <= toISO(today);
     for (const p of dayPlans) {
       if (seen.has(p.type)) continue;
       seen.add(p.type);
       const hasSession = daySessions.some(s => s.type === p.type);
-      dots.push({ type: p.type, solid: hasSession || p.status === 'done' });
+      const solid = hasSession || p.status === 'done' || (p.type === 'rest' && isPastOrToday);
+      dots.push({ type: p.type, solid });
       if (dots.length === 3) break;
     }
 
@@ -250,7 +252,7 @@
   const typeColors: Record<string, string> = {
     run:     '#f87171',
     workout: '#60a5fa',
-    rest:    '#9ca3af',
+    rest:    '#4ade80',
   };
 
   function ordinal(n: number): string {
